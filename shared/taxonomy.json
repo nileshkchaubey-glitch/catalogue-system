@@ -1,0 +1,13 @@
+{
+  "departments": {
+    "Disposable Items": ["Areca plates", "Paper plates and bowls", "Tissue paper", "Paper tea cups", "Catering items"],
+    "Food Packaging": ["Plastic containers", "Silver foil containers"],
+    "Cleaning": ["Dish wash", "Dustbins", "Mops"],
+    "Industrial Packaging": ["Bubble wrap", "Stretch film", "Tape rolls"]
+  },
+  "legacyCollections": {
+    "Restaurant & Takeaway": ["Plastic containers", "Silver foil containers", "Tissue paper"],
+    "Catering & Events": ["Areca plates", "Paper plates and bowls", "Silver foil containers", "Tissue paper", "Catering items"],
+    "Tea & Café": ["Paper tea cups", "Tissue paper", "Paper plates and bowls"]
+  }
+}
