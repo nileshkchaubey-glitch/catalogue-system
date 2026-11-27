@@ -22,7 +22,7 @@ const error = (message, status) =>
     { error: message },
     { status, headers: { "Cache-Control": "no-store" } },
   );
-export function upgrade(doc) {
+function previous(doc) {
   if (doc.schema === 2) return doc;
   if (
     doc.schema != null ||
@@ -56,14 +56,23 @@ export function upgrade(doc) {
     })),
   };
 }
+export function upgrade(doc){
+ if(doc.schema===3)return doc;
+ const legacy=previous(doc);
+ return {...legacy,schema:3,departments:structuredClone(taxonomy.departments),families:legacy.families.map(f=>({...f,gallery:[],variants:f.variants.map(v=>({...v,purchase:""}))}))};
+}
+const safeName=s=>name(s)&&s===s.trim()&&!["__proto__","constructor","prototype"].includes(s.toLowerCase());
 function valid(doc) {
   if (
-    doc?.schema !== 2 ||
+    doc?.schema !== 3 ||
     !Array.isArray(doc.families) ||
     !Array.isArray(doc.collections) ||
     !Array.isArray(doc.customers)
   )
     return false;
+  if(!doc.departments||typeof doc.departments!=="object"||Array.isArray(doc.departments))return false;
+  const entries=Object.entries(doc.departments);if(!entries.length||!entries.every(([dept,cats])=>safeName(dept)&&Array.isArray(cats)&&cats.length&&cats.every(safeName)))return false;
+  const categories=Object.values(doc.departments).flat();if(!unique(categories.map(c=>c.toLowerCase()))||!unique(Object.keys(doc.departments).map(c=>c.toLowerCase())))return false;
   const groups = doc.collections;
   if (
     !groups.every(
@@ -80,7 +89,7 @@ function valid(doc) {
         id(f.id) &&
         name(f.name) &&
         categories.includes(f.category) &&
-        photo(f.photo) &&
+        photo(f.photo) && Array.isArray(f.gallery) && f.gallery.every(pic=>pic&&photo(pic)) && unique(f.gallery) &&
         Array.isArray(f.collections) &&
         unique(f.collections) &&
         f.collections.every((g) => groups.includes(g)) &&
@@ -98,7 +107,7 @@ function valid(doc) {
             typeof v.ready === "boolean" &&
             photo(v.overridePhoto) &&
             (!v.ready || v.overridePhoto || f.photo) &&
-            rate(v.rate) &&
+            rate(v.rate) && rate(v.purchase) &&
             Array.isArray(v.history) &&
             v.history.every(
               (h) => h && Number.isFinite(Date.parse(h.at)) && rate(h.rate),
@@ -138,6 +147,7 @@ export function buyerProducts(doc, group) {
           variant: v.variant,
           unit: v.unit,
           photo: v.overridePhoto || f.photo,
+          gallery:f.gallery,
         })),
     );
 }
@@ -164,12 +174,21 @@ async function persistPhotos(doc, bucket) {
   }
   for (const family of doc.families) {
     family.photo = await store(family.photo);
+    family.gallery=await Promise.all(family.gallery.map(store));
     for (const v of family.variants)
       v.overridePhoto = await store(v.overridePhoto);
   }
 }
 export async function handleAPI(request, bucket) {
   const url = new URL(request.url);
+  if(url.pathname==="/api/photos"&&request.method==="POST"){
+   if(request.headers.get("Origin")!==url.origin||request.headers.get("Content-Type")!=="image/jpeg")return error("Invalid photo request.",403);
+   if(Number(request.headers.get("Content-Length"))>2*1024*1024)return error("Photo too large.",413);
+   const bytes=new Uint8Array(await request.arrayBuffer());if(bytes.length>2*1024*1024||bytes[0]!==255||bytes[1]!==216)return error("Choose a JPEG photo.",422);
+   const digest=Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",bytes)),v=>v.toString(16).padStart(2,"0")).join("");
+   await bucket.put("catalog-studio/photos/"+digest,bytes,{onlyIf:{etagDoesNotMatch:"*"},httpMetadata:{contentType:"image/jpeg"}});
+   return Response.json({photo:"/api/photos/"+digest});
+  }
   if (urlPattern.test(url.pathname) && request.method === "GET") {
     const asset = await bucket.get(
       "catalog-studio/photos/" + url.pathname.split("/").pop(),
@@ -187,6 +206,10 @@ export async function handleAPI(request, bucket) {
   if (!["/api/workspace", "/api/buyer"].includes(url.pathname))
     return error("Page unavailable.", 404);
   if (request.method === "GET") {
+    if(url.pathname==="/api/workspace" && request.headers.has("If-None-Match")){
+      const current=await bucket.head(KEY);
+      if(request.headers.get("If-None-Match")==='"'+(current?.etag||'new')+'"')return new Response(null,{status:304,headers:{'Cache-Control':'no-store'}});
+    }
     const object = await bucket.get(KEY),
       doc = upgrade(
         object ? await object.json() : { products: [], customers: [] },
@@ -228,7 +251,7 @@ export async function handleAPI(request, bucket) {
   } catch {
     return error("Invalid record.", 400);
   }
-  if (doc?.schema !== 2)
+  if (doc?.schema !== 3)
     return error(
       "Refresh the app to open the updated catalog before saving.",
       409,

@@ -11,6 +11,7 @@ export type Variant = {
   variant: string;
   unit: string;
   overridePhoto: string;
+  purchase: string;
   ready: boolean;
   rate: string;
   history: { at: string; rate: string }[];
@@ -20,6 +21,7 @@ export type Family = {
   name: string;
   category: string;
   photo: string;
+  gallery:string[];
   collections: string[];
   variants: Variant[];
 };
@@ -47,13 +49,15 @@ export type Customer = {
   consent: boolean;
 };
 export type Workspace = {
-  schema: 2;
+  schema: 3;
+  departments:Record<string,string[]>;
   families: Family[];
   customers: Customer[];
   collections: string[];
 };
 export const empty: Workspace = {
-  schema: 2,
+  schema: 3,
+  departments,
   families: [],
   customers: [],
   collections: Object.keys(taxonomy.legacyCollections),
@@ -104,4 +108,10 @@ export async function photograph(file: File): Promise<string> {
   } finally {
     bmp.close();
   }
+}
+
+export async function uploadImage(file:File){
+ const photo=await photograph(file);const bytes=await(await fetch(photo)).blob();
+ const res=await fetch('/api/photos',{method:'POST',headers:{'Content-Type':'image/jpeg'},body:bytes});
+ if(!res.ok)throw Error('Photo upload failed. Retry the selected file.');return (await res.json()).photo as string;
 }
