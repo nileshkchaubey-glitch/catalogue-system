@@ -6,6 +6,7 @@
   },
   "database": {
     "repository": "public.ecr.aws/supabase/postgres",
+    "mirrorRepository": "ghcr.io/supabase/postgres",
     "tag": "17.6.1.156",
     "platform": "linux/amd64",
     "manifestDigest": "sha256:665efa7e234a3c324718fd2b7fbbaaaf7263f2565bc2e8fce8555c4def4c4985",
