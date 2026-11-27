@@ -64,6 +64,7 @@ export function FamilyForm({
   groups: initialGroups,
   tree,
   selectedCollection,
+  profileId,
   cancel,
   onSave,
 }: {
@@ -73,6 +74,7 @@ export function FamilyForm({
   category: string;
   groups: string[];
   selectedCollection?: string;
+  profileId: string;
   cancel: () => void;
   onSave: (f: Family, tree: Workspace["departments"], groups: string[]) => Promise<void>;
 }) {
@@ -147,7 +149,7 @@ export function FamilyForm({
     B(true);
     E("");
     try {
-      patchVariant(variantId, { overridePhoto: await uploadImage(file) });
+      patchVariant(variantId, { overridePhoto: await uploadImage(file, profileId) });
     } catch (e) {
       E((e as Error).message);
     } finally {
@@ -247,6 +249,7 @@ export function FamilyForm({
           </section>
         )}
         <Gallery
+          profileId={profileId}
           pictures={[f.photo, ...f.gallery].filter(Boolean)}
           change={([photo = "", ...gallery]) => set((old) => ({ ...old, photo, gallery }))}
           busy={busy}

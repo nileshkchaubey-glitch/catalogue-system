@@ -1,15 +1,17 @@
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 const args = process.argv.slice(2);
 const port = args.includes("--port")
   ? args[args.indexOf("--port") + 1]
   : process.env.PORT || "5173";
 const child = spawn(
-  "wrangler",
+  process.execPath,
   [
+    fileURLToPath(new URL("../node_modules/wrangler/bin/wrangler.js", import.meta.url)),
     "dev",
     "--local",
     "--ip",
-    "0.0.0.0",
+    "127.0.0.1",
     "--port",
     port,
     "--show-interactive-dev-session=false",

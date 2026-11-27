@@ -1,9 +1,9 @@
 import {useState} from 'react';
 import {confirmAction} from './confirm';
 import {uploadImage} from './model';
-export function Gallery({pictures,change,busy,setBusy}:{pictures:string[];change:(p:string[])=>void;busy:boolean;setBusy:(v:boolean)=>void}){
+export function Gallery({pictures,change,busy,setBusy,profileId}:{pictures:string[];change:(p:string[])=>void;busy:boolean;setBusy:(v:boolean)=>void;profileId:string}){
  const [progress,P]=useState(''),[error,E]=useState('');
  async function upload(files:File[]){if(!files.length||busy)return;setBusy(true);E('');const added:string[]=[];const failed:string[]=[];
- try{for(const [i,file] of files.entries()){P('Uploading '+(i+1)+' of '+files.length);try{added.push(await uploadImage(file))}catch{failed.push(file.name)}}change([...new Set([...pictures,...added])]);if(failed.length)E('Could not upload: '+failed.join(', '));}finally{P('');setBusy(false)}}
+ try{for(const [i,file] of files.entries()){P('Uploading '+(i+1)+' of '+files.length);try{added.push(await uploadImage(file,profileId))}catch{failed.push(file.name)}}change([...new Set([...pictures,...added])]);if(failed.length)E('Could not upload: '+failed.join(', '));}finally{P('');setBusy(false)}}
  return <section className="fold"><h3>Product gallery</h3><p className="muted">Add extra views for every size. The first photo is the shared cover.</p><label className="upload" onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();void upload([...e.dataTransfer.files])}}>Add photos<input type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={busy} onChange={e=>{void upload(Array.from(e.target.files||[]));e.target.value=''}}/></label><div className="media-grid">{pictures.map((pic,i)=><div key={pic}><img src={pic} alt={'Product view '+(i+1)}/><small>{i===0?'Cover':'View '+(i+1)}</small>{i>0&&<button type="button" className="link" onClick={async()=>{if(await confirmAction('Make this image the shared cover for all sizes that inherit it?'))change([pic,...pictures.filter(x=>x!==pic)])}}>Set cover</button>}<button type="button" className="link" onClick={async()=>{if(await confirmAction('Remove this photo from the product gallery? Save the product to apply.'))change(pictures.filter(x=>x!==pic))}}>Remove photo</button></div>)}</div><small role="status">{progress}</small>{error&&<p role="alert">{error}</p>}</section>
 }

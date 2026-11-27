@@ -1,4 +1,5 @@
 import taxonomy from "../shared/taxonomy.json" with { type: "json" };
+import type { QuoteDraft, QuoteSnapshot } from "../shared/quote-pricing.mjs";
 export const departments: Record<string, string[]> = taxonomy.departments;
 export const categories = Object.values(departments).flat();
 export const departmentOf = (tree: Workspace["departments"], category: string) =>
@@ -54,6 +55,8 @@ export type Workspace = {
   families: Family[];
   customers: Customer[];
   collections: string[];
+  quoteDrafts?: QuoteDraft[];
+  quoteSnapshots?: QuoteSnapshot[];
 };
 export const empty: Workspace = {
   schema: 3,
@@ -77,16 +80,8 @@ export const digits = (s: string) => {
   const raw = s.replace(/[\s()-]/g, "");
   return /^\d{10}$/.test(raw) ? "91" + raw : raw.replace(/^\+/, "");
 };
-export const chat = (phone: string, message: string) =>
-  "https://wa.me/" + phone + "?text=" + encodeURIComponent(message);
 export const buyerLink = (collection: Collection) =>
   location.origin + "/buyer?collection=" + encodeURIComponent(collection);
-export const sampleDraft = (collection: Collection) =>
-  "Hello! Here is the " +
-  collection +
-  " catalog from XL Traders.\n" +
-  buyerLink(collection) +
-  "\nSelect items and quantities to request a quote.";
 export async function photograph(file: File): Promise<string> {
   if (
     !["image/jpeg", "image/png", "image/webp"].includes(file.type) ||
@@ -110,8 +105,14 @@ export async function photograph(file: File): Promise<string> {
   }
 }
 
-export async function uploadImage(file:File){
- const photo=await photograph(file);const bytes=await(await fetch(photo)).blob();
- const res=await fetch('/api/photos',{method:'POST',headers:{'Content-Type':'image/jpeg'},body:bytes});
- if(!res.ok)throw Error('Photo upload failed. Retry the selected file.');return (await res.json()).photo as string;
+export async function uploadImage(file: File, profileId: string) {
+  const photo = await photograph(file);
+  const bytes = await (await fetch(photo)).blob();
+  const res = await fetch("/api/photos", {
+    method: "POST",
+    headers: { "Content-Type": "image/jpeg", "X-Owner-Profile": profileId },
+    body: bytes,
+  });
+  if (!res.ok) throw Error("Photo upload failed. Retry the selected file.");
+  return (await res.json()).photo as string;
 }

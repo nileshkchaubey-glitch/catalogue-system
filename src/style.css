@@ -209,6 +209,35 @@ small {
 .top b {
   color: #30383a;
 }
+.top-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.top-actions .secondary {
+  white-space: nowrap;
+}
+.session-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+.sign-in {
+  width: min(100%, 400px);
+  padding: clamp(22px, 6vw, 36px);
+  display: grid;
+  gap: 18px;
+}
+.sign-in img {
+  width: 90px;
+  object-fit: contain;
+}
+.sign-in form {
+  display: grid;
+  gap: 15px;
+  padding: 0;
+}
 .secondary,
 .primary,
 .light,
@@ -991,7 +1020,7 @@ p[role="alert"] {
   .enquiry .primary {
     font-size: 13px;
   }
-  .top a {
+  .top-actions .secondary {
     font-size: 13px;
   }
 }

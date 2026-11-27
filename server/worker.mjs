@@ -1,4 +1,5 @@
 import taxonomy from "../shared/taxonomy.json" with { type: "json" };
+import { validQuoteTransition, validQuoteWorkspace } from "../shared/quote-pricing.mjs";
 const KEY = "catalog-studio/preview-v1.json";
 const FULL = "Full catalog";
 const eligibleName = (s) =>
@@ -70,7 +71,7 @@ export function upgrade(doc) {
   };
 }
 const safeName=s=>name(s)&&s===s.trim()&&!["__proto__","constructor","prototype"].includes(s.toLowerCase());
-function valid(doc) {
+export function valid(doc) {
   if (
     doc?.schema !== 3 ||
     !Array.isArray(doc.families) ||
@@ -138,7 +139,8 @@ function valid(doc) {
         typeof c.consent === "boolean",
     ) &&
     unique(doc.customers.map((c) => c.id)) &&
-    unique(doc.customers.map((c) => c.phone))
+    unique(doc.customers.map((c) => c.phone)) &&
+    validQuoteWorkspace(doc)
   );
 }
 export function buyerProducts(doc, group) {
@@ -270,9 +272,12 @@ export async function handleAPI(request, bucket) {
       "Check product details, distinct size names, photos and collection selections.",
       422,
     );
-  const metadata = await bucket.head(KEY);
-  if ((metadata?.etag || "new") !== revision)
+  const current = await bucket.get(KEY);
+  if ((current?.etag || "new") !== revision)
     return error("The workspace changed. Refresh before saving.", 409);
+  const previous = current ? upgrade(await current.json()) : upgrade({ products: [], customers: [] });
+  if (!validQuoteTransition(previous, doc))
+    return error("Refresh and review the saved quotation draft before confirming.", 422);
   await persistPhotos(doc, bucket);
   const result = await bucket.put(KEY, JSON.stringify(doc), {
     onlyIf:

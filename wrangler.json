@@ -1,6 +1,5 @@
 {
   "name": "xl-catalog-studio-preview",
   "main": "dist/server/index.js",
-  "compatibility_date": "2026-05-01",
-  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "xl-catalog-preview" }]
+  "compatibility_date": "2026-05-01"
 }

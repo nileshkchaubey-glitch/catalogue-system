@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import {
   X,
@@ -54,9 +54,10 @@ export function Dialog({
   close: () => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const dlg = ref.current;
     dlg?.showModal();
+    // Close before unmount removes the dialog so native focus returns to its opener.
     return () => dlg?.close();
   }, []);
   return (

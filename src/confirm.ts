@@ -11,9 +11,3 @@ export function confirmAction(message:string):Promise<boolean>{
  footer.append(cancel,confirm);dlg.append(title,p,footer);document.body.append(dlg);dlg.showModal();
  });
 }
-export function protectShareLinks(e:MouseEvent){
- const anchor=e.target instanceof Element?e.target.closest<HTMLAnchorElement>('a[href]'):null;
- if(!anchor||anchor.dataset.confirmed||!anchor.href.startsWith('https://wa.me/'))return;
- e.preventDefault();e.stopImmediatePropagation();
- void confirmAction('Open WhatsApp with the displayed message and recipient?').then(ok=>{if(ok){anchor.dataset.confirmed='true';anchor.click();delete anchor.dataset.confirmed}});
-}

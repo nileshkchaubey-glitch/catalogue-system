@@ -1,9 +1,9 @@
-# Storage and migrations
+# R2 storage and schema upgrades
 
 The deployed revision stores a versioned JSON workspace in R2 and keeps
 deduplicated photos in the same binding. Its executable migration is the
-`upgrade` function in [server/worker.mjs](../server/worker.mjs). There is no SQL
-migration directory in this version.
+`upgrade` function in [server/worker.mjs](../server/worker.mjs). For local
+Supabase and the staged import, see [Supabase staging and reconciliation](supabase-staging.md).
 
 The migration recognizes the original flat product records, creates one family
 and one variant per legacy product, retains their IDs, prices, rate history and

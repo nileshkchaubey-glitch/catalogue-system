@@ -19,7 +19,6 @@ import {
   Pencil,
   Package,
   RefreshCw,
-  MessageCircle,
   ShoppingBasket,
 } from "lucide-react";
 import {
@@ -29,16 +28,18 @@ import {
   featuredCollection,
   empty,
   money,
-  chat,
-  sampleDraft,
   buyerLink,
 } from "./model";
-import type { Product, Customer, Workspace, Collection, Family } from "./model";
+import type { Product, Customer, Workspace, Family } from "./model";
 import { Hero, Dialog, CategoryIcon } from "./ui";
 import { CustomerForm, RateForm } from "./forms";
 import { FamilyForm, CollectionForm } from "./family";
 import { Snapshot } from "./snapshot";
 import { confirmAction } from "./confirm";
+import { SessionBoundary } from "./session";
+import type { OwnerProfile } from "./session";
+import { QuotationForm } from "./quotations";
+import { BulkPricingForm } from "./bulk-pricing";
 import "./style.css";
 type Modal =
   | { kind: "product"; family?: Family }
@@ -46,7 +47,8 @@ type Modal =
   | { kind: "snapshot"; id?: string }
   | { kind: "customer"; c?: Customer }
   | { kind: "rate"; p: Product }
-  | { kind: "draft"; customerId: string; collection: Collection };
+  | { kind: "draft"; customerId: string }
+  | { kind: "bulk"; variantIds: string[] };
 const navigation = [
   { name: "Products", Icon: LibraryBig },
   { name: "Rates", Icon: Tags },
@@ -76,7 +78,11 @@ function SearchBox({
     </div>
   );
 }
-function App() {
+function App({ profile, signOut, checkSession }: {
+  profile: OwnerProfile;
+  signOut: () => Promise<void>;
+  checkSession: () => Promise<void>;
+}) {
   const [tab, T] = useState("Products"),
     [filter, F] = useState(""),
     [query, Q] = useState(""),
@@ -86,18 +92,13 @@ function App() {
     [revision, R] = useState(""),
     [issue, E] = useState(""),
     [status, A] = useState(""),
-    [selected, C] = useState(""),
-    [collection, G] = useState<Collection>(featuredCollection);
+    [selected, C] = useState("");
   const [scope, setScope] = useState<"department" | "category" | "collection">(
     "department",
   );
   const allGroups = [fullCatalog, ...data.collections];
-  const shareCollection = allGroups.includes(collection) ? collection : fullCatalog;
   const { departments } = data;
   const productForm = useRef<HTMLFormElement>(null);
-  const draftCustomer = modal?.kind === "draft" && allGroups.includes(modal.collection)
-    ? data.customers.find((c) => c.id === modal.customerId && c.consent)
-    : undefined;
   const products = data.families.flatMap(variantsOf);
   const version = useRef("");
   const formRevision = useRef("");
@@ -107,7 +108,14 @@ function App() {
     if (writes.current) return;
     const ticket = ++generation.current;
     try {
-      const r = await fetch("/api/workspace", { cache: "no-store" });
+      const r = await fetch("/api/workspace", {
+        cache: "no-store",
+        headers: { "X-Owner-Profile": profile.id },
+      });
+      if (r.status === 401 || r.status === 403) {
+        await checkSession();
+        throw Error();
+      }
       if (!r.ok) throw Error();
       const next = await r.json();
       if (ticket !== generation.current || writes.current) return;
@@ -129,7 +137,7 @@ function App() {
       window.removeEventListener("focus", focus);
       clearInterval(timer);
     };
-  }, []);
+  }, [profile.id, checkSession]);
   useEffect(() => {
     if (status) {
       const id = setTimeout(() => A(""), 3800);
@@ -142,7 +150,7 @@ function App() {
   }
   async function closeDialog() {
     const form = productForm.current;
-    if (form?.dataset.working === "true") return;
+    if (writes.current || form?.dataset.working === "true") return;
     if (
       form?.dataset.dirty === "true" &&
       !(await confirmAction("Discard unsaved product changes?"))
@@ -162,14 +170,17 @@ function App() {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
+          "X-Owner-Profile": profile.id,
           "X-Revision": formRevision.current,
         },
         body: JSON.stringify(next),
       });
       const result = await r.json();
+      if (r.status === 401 || r.status === 403) await checkSession();
       if (!r.ok) throw Error(result.error || "Could not save changes.");
       S(result.workspace);
       version.current = result.revision;
+      formRevision.current = result.revision;
       R(result.revision);
       A(msg);
     } finally {
@@ -191,10 +202,9 @@ function App() {
   const chosen = data.customers.find((c) => c.id === selected);
   function choose(c?: Customer) {
     C(c?.id || "");
-    if (c) G(c.collection);
   }
-  function draft(c: Customer, g: Collection) {
-    open({ kind: "draft", customerId: c.id, collection: g });
+  function draft(c: Customer) {
+    open({ kind: "draft", customerId: c.id });
   }
   const productDepartment = (category: string) => departmentOf(departments, category);
   const matches = (s: string) =>
@@ -268,7 +278,7 @@ function App() {
           </span>
           <div>
             <b>Private preview</b>
-            <small>Owner workspace</small>
+            <small>{profile.business_name}</small>
           </div>
         </div>
       </aside>
@@ -277,9 +287,12 @@ function App() {
           <span>
             Workspace <ChevronRight size={14} /> <b>{tab}</b>
           </span>
-          <a className="secondary" href={buyerLink("Full catalog")}>
-            <Eye size={17} /> Buyer preview
-          </a>
+          <div className="top-actions">
+            <a className="secondary" href={buyerLink("Full catalog")}>
+              <Eye size={17} /> Buyer preview
+            </a>
+            <button type="button" className="secondary" onClick={() => void signOut()}>Sign out</button>
+          </div>
         </header>
         <main>
           <div className="heading">
@@ -324,7 +337,15 @@ function App() {
                 Manage products
               </button>
             )}
-            {tab !== "Rates" && (
+            {tab === "Rates" ? (
+              <button
+                className="primary"
+                disabled={!revision || !filtered.length}
+                onClick={() => open({ kind: "bulk", variantIds: filtered.map((p) => p.id) })}
+              >
+                <Tags size={17} /> Bulk markup
+              </button>
+            ) : (
               <button
                 className="primary"
                 disabled={!revision}
@@ -535,10 +556,9 @@ function App() {
                         </button>
                         <button
                           className="secondary"
-                          disabled={!c.consent}
-                          onClick={() => draft(c, c.collection)}
+                          onClick={() => draft(c)}
                         >
-                          <Send size={15} /> Draft
+                          <Send size={15} /> Quotation
                         </button>
                       </div>
                     ))}
@@ -560,8 +580,7 @@ function App() {
                   <span className="actionicon">
                     <Send size={21} />
                   </span>
-                  <h2>Quick share</h2>
-                  <p>Prepare a WhatsApp catalog for a customer.</p>
+                  <h2>Prepare a quotation</h2>
                   <label>
                     Customer
                     <select
@@ -586,51 +605,15 @@ function App() {
                   >
                     <UserPlus size={15} /> Add customer
                   </button>
-                  <label>
-                    Collection
-                    <select
-                      value={shareCollection}
-                      onChange={(e) => G(e.target.value as Collection)}
-                    >
-                      {allGroups.map((g) => (
-                        <option key={g}>{g}</option>
-                      ))}
-                    </select>
-                  </label>
-                  {chosen?.consent ? (
-                    <a
-                      className="primary wide"
-                      target="_blank"
-                      rel="noreferrer"
-                      href={chat(chosen.phone, sampleDraft(shareCollection))}
-                    >
-                      <MessageCircle size={17} /> Open WhatsApp draft
-                    </a>
-                  ) : (
-                    <button className="primary wide" disabled>
-                      <MessageCircle size={17} /> Open WhatsApp draft
-                    </button>
-                  )}
-                  <small className="testnote">
-                    Owner-only link. Use a test contact during preview.
-                  </small>
-                  {chosen?.consent && (
-                    <button
-                      className="link"
-                      onClick={() => draft(chosen, shareCollection)}
-                    >
-                      Preview message
-                    </button>
-                  )}
+                  <button className="primary wide" disabled={!chosen} onClick={() => chosen && draft(chosen)}>
+                    <Send size={17} /> Open quotation
+                  </button>
                   <button
                     className="secondary wide"
                     onClick={() => open({ kind: "snapshot" })}
                   >
                     <Package size={16} /> Product snapshot
                   </button>
-                  {chosen && !chosen.consent && (
-                    <small>Record catalog permission before sharing.</small>
-                  )}
                 </section>
                 <section className="panel shortlist">
                   <h3>
@@ -679,13 +662,16 @@ function App() {
                       ? modal.current
                         ? "Manage collection"
                         : "Create collection"
-                      : "WhatsApp draft"
+                      : modal.kind === "bulk"
+                        ? "Bulk markup"
+                        : "Customer quotation"
           }
           close={() => void closeDialog()}
         >
           {modal.kind === "product" && (
             <FamilyForm
               formRef={productForm}
+              profileId={profile.id}
               initial={modal.family}
               tree={departments}
               category={
@@ -748,8 +734,7 @@ function App() {
           {modal.kind === "snapshot" && (
             <Snapshot
               products={products}
-              customers={data.customers}
-              customerId={selected}
+              businessName={profile.business_name}
               initialProduct={modal.id}
             />
           )}
@@ -813,36 +798,11 @@ function App() {
               }
             />
           )}
-          {modal.kind === "draft" && !draftCustomer && (
-            <div className="draft">
-              <Notice>This customer or collection is no longer available for sharing.</Notice>
-            </div>
+          {modal.kind === "draft" && (
+            <QuotationForm key={modal.customerId} workspace={data} customerId={modal.customerId} save={save} />
           )}
-          {modal.kind === "draft" && draftCustomer && (
-            <div className="draft">
-              <p>
-                <b>{draftCustomer.name}</b>
-                <br />+{draftCustomer.phone}
-              </p>
-              <pre>{sampleDraft(modal.collection)}</pre>
-              <Notice>
-                This catalog link is private to the owner during testing. Use
-                your own test number to try WhatsApp.
-              </Notice>
-              <footer>
-                <a className="secondary" href={buyerLink(modal.collection)}>
-                  View catalog
-                </a>
-                <a
-                  className="primary"
-                  target="_blank"
-                  rel="noreferrer"
-                  href={chat(draftCustomer.phone, sampleDraft(modal.collection))}
-                >
-                  Open WhatsApp
-                </a>
-              </footer>
-            </div>
+          {modal.kind === "bulk" && (
+            <BulkPricingForm workspace={data} variantIds={modal.variantIds} save={save} close={() => D(null)} />
           )}
         </Dialog>
       )}
@@ -853,25 +813,28 @@ type BuyerProduct = Pick<
   Product,
   "id" | "familyId" | "name" | "variant" | "category" | "unit" | "photo"
 >;
-function Buyer() {
+function Buyer({ profile, checkSession }: { profile: OwnerProfile; checkSession: () => Promise<void> }) {
   const raw =
     new URLSearchParams(location.search).get("collection") || "Full catalog";
   const group = raw;
   const [items, I] = useState<BuyerProduct[]>([]),
     [state, S] = useState("Loading catalog…"),
     [find, F] = useState(""),
-    [qty, Q] = useState<Record<string, number>>({});
+    [qty, Q] = useState<Record<string, number>>({}),
+    [copied, setCopied] = useState("");
   async function load() {
     S("Loading catalog…");
     try {
       const r = await fetch(
         "/api/buyer?collection=" + encodeURIComponent(group),
+        { headers: { "X-Owner-Profile": profile.id } },
       );
       if (r.status === 404) {
         I([]);
         S("This collection is unavailable.");
         return;
       }
+      if (r.status === 401 || r.status === 403) await checkSession();
       if (!r.ok) throw Error();
       const d = await r.json();
       I(d.products);
@@ -882,7 +845,7 @@ function Buyer() {
   }
   useEffect(() => {
     void load();
-  }, [group]);
+  }, [group, profile.id, checkSession]);
   const [sizeChoices, chooseSize] = useState<Record<string, string>>({});
   const buyerFamilies = new Map<string, BuyerProduct[]>();
   for (const item of items) {
@@ -899,7 +862,7 @@ function Buyer() {
   }
   const selected = items.filter((p) => qty[p.id] > 0);
   const message =
-    "Hello XL Traders, please quote the following items:\n" +
+    "Hello " + profile.business_name + ", please quote the following items:\n" +
     selected
       .map(
         (p) =>
@@ -925,7 +888,7 @@ function Buyer() {
           <div>
             <h1>{group}</h1>
             <p>
-              Select items and quantities to request a quote from XL Traders.
+              Select items and quantities for an enquiry.
             </p>
           </div>
         </div>
@@ -1019,14 +982,20 @@ function Buyer() {
         {selected.length > 0 && (
           <div className="enquiry">
             <b>{selected.length} selected</b>
-            <a
+            <button
               className="primary"
-              href={chat("919773239442", message)}
-              target="_blank"
-              rel="noreferrer"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(message);
+                  setCopied("Enquiry copied.");
+                } catch {
+                  setCopied("Could not copy the enquiry.");
+                }
+              }}
             >
-              <MessageCircle size={16} /> Enquire on WhatsApp
-            </a>
+              Copy enquiry
+            </button>
+            {copied && <span role="status">{copied}</span>}
           </div>
         )}
       </main>
@@ -1034,5 +1003,9 @@ function Buyer() {
   );
 }
 createRoot(document.getElementById("root")!).render(
-  location.pathname === "/buyer" ? <Buyer /> : <App />,
+  <SessionBoundary>
+    {(session) => location.pathname === "/buyer"
+      ? <Buyer key={session.profile.id} {...session} />
+      : <App key={session.profile.id} {...session} />}
+  </SessionBoundary>,
 );

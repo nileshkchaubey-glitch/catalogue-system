@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { Download, Share2, MessageCircle } from "lucide-react";
-import { chat, money } from "./model";
-import type { Product, Customer } from "./model";
+import { Download } from "lucide-react";
+import { money } from "./model";
+import type { Product } from "./model";
 function image(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -35,7 +35,7 @@ function lines(ctx: CanvasRenderingContext2D, value: string, width: number) {
   if (row) rows.push(row);
   return rows;
 }
-export async function renderSnapshot(p: Product, date: string): Promise<File> {
+export async function renderSnapshot(p: Product, date: string, businessName: string): Promise<File> {
   const [photo, logo] = await Promise.all([image(p.photo), image("/logo.png")]);
   const c = document.createElement("canvas");
   c.width = 1000;
@@ -93,7 +93,7 @@ export async function renderSnapshot(p: Product, date: string): Promise<File> {
   ctx.fillRect(0, c.height - 87, 1000, 87);
   ctx.fillStyle = "#253137";
   ctx.font = "27px Arial";
-  ctx.fillText("XL Traders  ·  WhatsApp +91 9773239442", 60, c.height - 34);
+  ctx.fillText(businessName, 60, c.height - 34, 880);
   const blob = await new Promise<Blob>((ok, no) =>
     c.toBlob(
       (b) => (b ? ok(b) : no(Error("Could not create the snapshot."))),
@@ -102,7 +102,7 @@ export async function renderSnapshot(p: Product, date: string): Promise<File> {
   );
   return new File(
     [blob],
-    ("XL-Traders-" + p.name + "-" + (p.variant || p.unit))
+    (businessName + "-" + p.name + "-" + (p.variant || p.unit))
       .replace(/[^a-z0-9-]+/gi, "-")
       .slice(0, 110) + ".png",
     { type: "image/png" },
@@ -111,23 +111,19 @@ export async function renderSnapshot(p: Product, date: string): Promise<File> {
 type Media = { file: File; url: string; key: string };
 export function Snapshot({
   products,
-  customers,
+  businessName,
   initialProduct,
-  customerId,
 }: {
   products: Product[];
-  customers: Customer[];
+  businessName: string;
   initialProduct?: string;
-  customerId: string;
 }) {
   const eligible = products.filter((p) => p.ready && p.photo && p.rate);
   const [id, P] = useState(initialProduct || eligible[0]?.id || ""),
-    [contact, C] = useState(customerId),
     [media, M] = useState<Media | null>(null),
     [error, E] = useState(""),
     [retry, R] = useState(0);
-  const product = eligible.find((p) => p.id === id),
-    customer = customers.find((c) => c.id === contact && c.consent);
+  const product = eligible.find((p) => p.id === id);
   const date = new Intl.DateTimeFormat("en-IN", {
     day: "numeric",
     month: "short",
@@ -144,6 +140,7 @@ export function Snapshot({
         product.category,
         product.unit,
         date,
+        businessName,
       ])
     : "";
   useEffect(() => {
@@ -152,7 +149,7 @@ export function Snapshot({
     M(null);
     E("");
     if (product)
-      renderSnapshot(product, date)
+      renderSnapshot(product, date, businessName)
         .then((file) => {
           if (cancelled) return;
           url = URL.createObjectURL(file);
@@ -167,36 +164,6 @@ export function Snapshot({
     };
   }, [key, retry]);
   const ready = media?.key === key ? media : null;
-  const caption = product
-    ? [
-        "*XL Traders*",
-        "*" + product.name + "*",
-        [product.variant, product.category].filter(Boolean).join(" · "),
-        "Rate: " + money(product.rate) + " per " + product.unit.toLowerCase(),
-        "Quoted on " + date,
-      ].join("\n")
-    : "";
-  const canShare =
-    !!ready &&
-    !!navigator.share &&
-    !!navigator.canShare?.({ files: [ready.file] });
-  async function share() {
-    if (!ready || !customer) return;
-    E("");
-    try {
-      const withCaption = { files: [ready.file], text: caption };
-      await navigator.share(
-        navigator.canShare?.(withCaption)
-          ? withCaption
-          : { files: [ready.file] },
-      );
-    } catch (e) {
-      if ((e as Error).name !== "AbortError")
-        E(
-          "File sharing is unavailable here. Download the image and attach it in WhatsApp.",
-        );
-    }
-  }
   return (
     <div className="draft snapshot">
       <label>
@@ -219,24 +186,6 @@ export function Snapshot({
       )}
       {product && (
         <>
-          <label>
-            Customer
-            <select
-              value={customer?.id || ""}
-              onChange={(e) => C(e.target.value)}
-            >
-              <option value="">
-                Select a customer with catalog permission
-              </option>
-              {customers
-                .filter((c) => c.consent)
-                .map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-            </select>
-          </label>
           {ready ? (
             <img
               className="card-preview"
@@ -249,56 +198,11 @@ export function Snapshot({
             !error && <p role="status">Preparing image…</p>
           )}
           {ready && (
-            <>
-              <details>
-                <summary>WhatsApp caption</summary>
-                <pre>{caption}</pre>
-              </details>
-              {customer && (
-                <p>
-                  Recipient: <b>{customer.name}</b> · +{customer.phone}
-                </p>
-              )}
-              {canShare && (
-                <>
-                  <button
-                    className="primary"
-                    disabled={!customer}
-                    onClick={() => void share()}
-                  >
-                    <Share2 size={16} /> Share image
-                  </button>
-                  <small>
-                    Choose WhatsApp and the intended recipient in your device’s
-                    share menu.
-                  </small>
-                </>
-              )}
-              <div className="card-actions">
-                <a
-                  className="secondary"
-                  href={ready.url}
-                  download={ready.file.name}
-                >
-                  <Download size={16} /> Download image
-                </a>
-                {customer && (
-                  <a
-                    className="secondary"
-                    href={chat(customer.phone, caption)}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    <MessageCircle size={16} /> Open customer chat
-                  </a>
-                )}
-              </div>
-              <small>
-                To attach manually, download the image, open the customer chat
-                and attach the PNG. The image includes the rate even without a
-                caption.
-              </small>
-            </>
+            <div className="card-actions">
+              <a className="secondary" href={ready.url} download={ready.file.name}>
+                <Download size={16} /> Download image
+              </a>
+            </div>
           )}
         </>
       )}

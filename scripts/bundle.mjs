@@ -1,9 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
+import { build } from "vite";
 const assets = {};
 function visit(dir) {
   for (const name of fs.readdirSync(dir)) {
     const f = path.join(dir, name);
+    if (f === path.join("dist", "server")) continue;
     if (fs.statSync(f).isDirectory()) visit(f);
     else {
       const type = {
@@ -21,25 +23,24 @@ function visit(dir) {
   }
 }
 visit("dist");
-const core = fs
-  .readFileSync("server/worker.mjs", "utf8")
-  .replace(
-    /^import taxonomy from [^;]+;/m,
-    "const taxonomy = " + fs.readFileSync("shared/taxonomy.json", "utf8") + ";",
-  );
-const handler = `
-export default {async fetch(req,env){
- const url=new URL(req.url);
- if(url.pathname.startsWith('/api/')){try{return await handleAPI(req,env.BUCKET)}catch{return error('The workspace is unavailable. Please try again.',503)}}
- const asset=assets[url.pathname==='/'||url.pathname==='/buyer'?'/index.html':url.pathname];
- if(!asset)return new Response('Page unavailable.',{status:404});
- return new Response(Uint8Array.from(atob(asset.data),c=>c.charCodeAt(0)),{headers:{'content-type':asset.type,'x-content-type-options':'nosniff','referrer-policy':'no-referrer','cache-control':'private, no-cache'}});
-}};
-`;
-fs.mkdirSync("dist/server", { recursive: true });
-fs.writeFileSync(
-  "dist/server/index.js",
-  core + "\nconst assets=" + JSON.stringify(assets) + ";\n" + handler,
-);
-fs.mkdirSync("dist/.openai", { recursive: true });
-fs.copyFileSync(".openai/hosting.json", "dist/.openai/hosting.json");
+await build({
+  configFile: false,
+  publicDir: false,
+  plugins: [{
+    name: "catalogue-assets",
+    resolveId(id) {
+      if (id === "virtual:catalogue-assets") return "\0" + id;
+    },
+    load(id) {
+      if (id === "\0virtual:catalogue-assets") return `export default ${JSON.stringify(assets)}`;
+    },
+  }],
+  build: {
+    outDir: "dist/server",
+    emptyOutDir: true,
+    lib: { entry: "server/index.mjs", formats: ["es"], fileName: () => "index.js" },
+    target: "esnext",
+    minify: false,
+    reportCompressedSize: false,
+  },
+});

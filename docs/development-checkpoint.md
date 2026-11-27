@@ -33,3 +33,22 @@ row-count and field-level reconciliation. Keep an immutable per-customer quote
 record with a price snapshot. Validate permission boundaries and concurrent
 updates before enabling team access. Move high-volume imports and image
 processing to resumable jobs once catalogue size warrants it.
+
+## Secure backend and quotations checkpoint — 2026-11-27
+
+The feature branch adds a provisioned-owner login, private media gateway,
+revisioned workspace bridge, non-destructive staging, customer-specific quote
+snapshots, bulk pricing and browser acceptance fixtures. It does not activate
+an imported workspace or replace the deployed R2 source of truth.
+
+Verification on the locked source: TypeScript and production build passed;
+16 regression tests passed. The interactive Windows Codex run reported all
+7 browser-suite tests passed at desktop 1366x900 and touch-mobile 390x844.
+An independent non-interactive remote Windows run passed four top-level
+browser/Worker/launcher tests but Chrome exited at startup (code 0), so its
+interactive workflow was not independently reproduced. Keep browser sandbox
+security enabled. The local SQL permission suite, real Auth/Storage checks,
+server-side validation boundary hardening, private export/media reconciliation,
+and deployment remain release gates. The current JSONB bridge allows an
+owner to bypass some Worker business rules via direct Data API writes.
+Do not connect real business records or cut over before resolving these gates.
