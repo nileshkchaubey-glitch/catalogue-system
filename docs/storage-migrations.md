@@ -8,13 +8,14 @@ migration directory in this version.
 The migration recognizes the original flat product records, creates one family
 and one variant per legacy product, retains their IDs, prices, rate history and
 customer records, and derives legacy collection memberships from the category
-mapping. Schema 2 documents pass through directly. Reads upgrade the shape
-in memory. A subsequent validated write persists the new shape using the
-object revision as a concurrency guard. The test uses an in-memory bucket to
-exercise migration, stale writes and buyer-visible fields.
+mapping. Existing schema 2 documents keep their families, variants and
+collection memberships when they upgrade to schema 3. Reads upgrade the shape
+in memory. A subsequent validated write persists schema 3 using the object
+revision as a concurrency guard.
 
-The enterprise checkpoint adds the next executable migration to the same
-module. It initializes taxonomy from the default mapping, initializes the
-gallery empty and leaves purchase prices blank for existing variants. Verify
-migration and rollback on a privately controlled copy before upgrading live
-storage. Production data is provisioned and backed up separately from Git.
+The schema 3 migration initializes taxonomy from the default mapping, creates
+empty galleries and leaves purchase prices blank for existing variants. The
+item editor saves the item, taxonomy and collections together. The buyer API
+projects verified variants, their effective photo and the product gallery.
+Synthetic tests use an in-memory bucket to exercise migration, editor saves,
+stale writes and the buyer field allowlist.

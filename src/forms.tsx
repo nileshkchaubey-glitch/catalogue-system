@@ -1,7 +1,8 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { english, digits, money } from "./model";
+import { english, digits, money, featuredCollection, fullCatalog } from "./model";
 import type { Product, Customer, Collection } from "./model";
+import { normalizeRate, validPrice } from "./pricing";
 type Submit<T> = (value: T) => Promise<void>;
 function Footer({
   busy,
@@ -44,7 +45,7 @@ export function CustomerForm({
       id: crypto.randomUUID(),
       name: "",
       phone: "",
-      collection: "Restaurant & Takeaway",
+      collection: collections.includes(featuredCollection) ? featuredCollection : fullCatalog,
       consent: false,
     },
   );
@@ -133,11 +134,11 @@ export function RateForm({
     [error, E] = useState("");
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (!/^\d{1,8}(\.\d{1,2})?$/.test(value) || Number(value) <= 0)
+    if (!validPrice(value))
       return E("Enter a positive rate with up to two decimal places.");
     B(true);
     try {
-      await onSave(Number(value).toFixed(2));
+      await onSave(normalizeRate(value, p.rate));
       close();
     } catch (e) {
       E((e as Error).message);

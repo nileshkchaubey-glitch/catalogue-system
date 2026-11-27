@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --test-isolation=none tests/*.test.mjs",
     "build": "tsc --noEmit && vite build && node scripts/bundle.mjs",
     "dev": "node scripts/dev.mjs"
   },

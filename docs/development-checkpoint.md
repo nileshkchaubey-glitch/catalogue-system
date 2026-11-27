@@ -20,6 +20,12 @@ sharing, keyboard navigation and bulk price workflows. The older client
 entry point and tests target schema 2. Treat this branch as unfinished
 development and start integration from its exact commit.
 
+The local integration on `feat/enterprise-integration` connects the schema 3
+item editor to workspace taxonomy, search and revision-guarded saves. The
+editor can save taxonomy, collections, galleries and purchase prices alongside
+the item. Buyer projections keep pricing, rate history and contacts private.
+Bulk pricing and quote records remain follow-up work.
+
 For the later production storage transition, establish stable record IDs and
 a normalized transactional store, then migrate taxonomy, families, variants,
 customers, price history and media references using a repeatable import with

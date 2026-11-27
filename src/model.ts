@@ -1,10 +1,10 @@
-import taxonomy from "../shared/taxonomy.json";
+import taxonomy from "../shared/taxonomy.json" with { type: "json" };
 export const departments: Record<string, string[]> = taxonomy.departments;
 export const categories = Object.values(departments).flat();
-export const departmentOf = (category: string) =>
-  Object.keys(departments).find((key) => departments[key].includes(category)) ||
-  "";
+export const departmentOf = (tree: Workspace["departments"], category: string) =>
+  Object.entries(tree).find(([, names]) => names.includes(category))?.[0] ?? "";
 export const fullCatalog = "Full catalog";
+export const featuredCollection = "Restaurant & Takeaway";
 export type Collection = string;
 export type Variant = {
   id: string;
@@ -21,7 +21,7 @@ export type Family = {
   name: string;
   category: string;
   photo: string;
-  gallery:string[];
+  gallery: string[];
   collections: string[];
   variants: Variant[];
 };
@@ -50,7 +50,7 @@ export type Customer = {
 };
 export type Workspace = {
   schema: 3;
-  departments:Record<string,string[]>;
+  departments: Record<string, string[]>;
   families: Family[];
   customers: Customer[];
   collections: string[];

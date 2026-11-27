@@ -23,11 +23,10 @@ import {
   ShoppingBasket,
 } from "lucide-react";
 import {
-  categories,
-  departments,
   departmentOf,
   variantsOf,
   fullCatalog,
+  featuredCollection,
   empty,
   money,
   chat,
@@ -39,6 +38,7 @@ import { Hero, Dialog, CategoryIcon } from "./ui";
 import { CustomerForm, RateForm } from "./forms";
 import { FamilyForm, CollectionForm } from "./family";
 import { Snapshot } from "./snapshot";
+import { confirmAction } from "./confirm";
 import "./style.css";
 type Modal =
   | { kind: "product"; family?: Family }
@@ -46,7 +46,7 @@ type Modal =
   | { kind: "snapshot"; id?: string }
   | { kind: "customer"; c?: Customer }
   | { kind: "rate"; p: Product }
-  | { kind: "draft"; c: Customer; collection: Collection };
+  | { kind: "draft"; customerId: string; collection: Collection };
 const navigation = [
   { name: "Products", Icon: LibraryBig },
   { name: "Rates", Icon: Tags },
@@ -87,11 +87,17 @@ function App() {
     [issue, E] = useState(""),
     [status, A] = useState(""),
     [selected, C] = useState(""),
-    [collection, G] = useState<Collection>("Restaurant & Takeaway");
+    [collection, G] = useState<Collection>(featuredCollection);
   const [scope, setScope] = useState<"department" | "category" | "collection">(
     "department",
   );
   const allGroups = [fullCatalog, ...data.collections];
+  const shareCollection = allGroups.includes(collection) ? collection : fullCatalog;
+  const { departments } = data;
+  const productForm = useRef<HTMLFormElement>(null);
+  const draftCustomer = modal?.kind === "draft" && allGroups.includes(modal.collection)
+    ? data.customers.find((c) => c.id === modal.customerId && c.consent)
+    : undefined;
   const products = data.families.flatMap(variantsOf);
   const version = useRef("");
   const formRevision = useRef("");
@@ -133,6 +139,15 @@ function App() {
   function open(m: Modal) {
     formRevision.current = version.current;
     D(m);
+  }
+  async function closeDialog() {
+    const form = productForm.current;
+    if (form?.dataset.working === "true") return;
+    if (
+      form?.dataset.dirty === "true" &&
+      !(await confirmAction("Discard unsaved product changes?"))
+    ) return;
+    D(null);
   }
   async function save(next: Workspace, msg: string) {
     if (writes.current) throw Error("A save is already in progress.");
@@ -179,8 +194,9 @@ function App() {
     if (c) G(c.collection);
   }
   function draft(c: Customer, g: Collection) {
-    open({ kind: "draft", c, collection: g });
+    open({ kind: "draft", customerId: c.id, collection: g });
   }
+  const productDepartment = (category: string) => departmentOf(departments, category);
   const matches = (s: string) =>
     s.toLowerCase().includes(query.toLowerCase().trim());
   const isLibrary = tab === "Products" && !filter;
@@ -191,10 +207,10 @@ function App() {
         (scope === "collection"
           ? p.collections.includes(filter)
           : scope === "department"
-            ? departmentOf(p.category) === filter
+            ? productDepartment(p.category) === filter
             : p.category === filter)) &&
       matches(
-        [p.name, p.variant, p.category, departmentOf(p.category)].join(" "),
+        [p.name, p.variant, p.category, productDepartment(p.category)].join(" "),
       ),
   );
   const displayProducts =
@@ -207,7 +223,7 @@ function App() {
   const folderNames = isLibrary
     ? Object.keys(departments)
     : isDepartment
-      ? departments[filter]
+      ? departments[filter] ?? []
       : [];
   const folders = folderNames.filter(
     (key) =>
@@ -273,13 +289,13 @@ function App() {
                   className="back"
                   onClick={() =>
                     scope === "category"
-                      ? viewFilter(departmentOf(filter), "department")
+                      ? viewFilter(productDepartment(filter), "department")
                       : viewFilter("")
                   }
                 >
                   <ArrowLeft size={14} />{" "}
                   {scope === "category"
-                    ? departmentOf(filter)
+                    ? productDepartment(filter) || "Product library"
                     : "Product library"}
                 </button>
               )}
@@ -333,8 +349,8 @@ function App() {
               </button>
             </Notice>
           )}
-          {isLibrary && (
-            <Hero open={() => viewFilter("Restaurant & Takeaway")} />
+          {isLibrary && data.collections.includes(featuredCollection) && (
+            <Hero open={() => viewFilter(featuredCollection)} />
           )}
           <div className={isLibrary ? "columns" : "onecol"}>
             <section className="panel">
@@ -353,7 +369,7 @@ function App() {
                   </h2>
                   <small>
                     {isLibrary
-                      ? `4 departments · ${data.families.length} products`
+                      ? `${Object.keys(departments).length} departments · ${data.families.length} products`
                       : tab === "Customers"
                         ? `${data.customers.length} contacts`
                         : tab === "Rates"
@@ -573,7 +589,7 @@ function App() {
                   <label>
                     Collection
                     <select
-                      value={collection}
+                      value={shareCollection}
                       onChange={(e) => G(e.target.value as Collection)}
                     >
                       {allGroups.map((g) => (
@@ -586,7 +602,7 @@ function App() {
                       className="primary wide"
                       target="_blank"
                       rel="noreferrer"
-                      href={chat(chosen.phone, sampleDraft(collection))}
+                      href={chat(chosen.phone, sampleDraft(shareCollection))}
                     >
                       <MessageCircle size={17} /> Open WhatsApp draft
                     </a>
@@ -601,7 +617,7 @@ function App() {
                   {chosen?.consent && (
                     <button
                       className="link"
-                      onClick={() => draft(chosen, collection)}
+                      onClick={() => draft(chosen, shareCollection)}
                     >
                       Preview message
                     </button>
@@ -665,27 +681,32 @@ function App() {
                         : "Create collection"
                       : "WhatsApp draft"
           }
-          close={() => D(null)}
+          close={() => void closeDialog()}
         >
           {modal.kind === "product" && (
             <FamilyForm
+              formRef={productForm}
               initial={modal.family}
+              tree={departments}
               category={
-                scope === "category" && filter
+                scope === "category" && productDepartment(filter)
                   ? filter
-                  : scope === "department" && filter
-                    ? departments[filter][0]
-                    : categories[0]
+                  : (scope === "department" && departments[filter]?.[0]) ||
+                    Object.values(departments)[0]?.[0] || ""
               }
               groups={data.collections}
               selectedCollection={
-                scope === "collection" && filter ? filter : undefined
+                scope === "collection" && data.collections.includes(filter)
+                  ? filter
+                  : undefined
               }
-              close={() => D(null)}
-              onSave={(family) =>
-                save(
+              cancel={() => void closeDialog()}
+              onSave={async (family, nextDepartments, collections) => {
+                await save(
                   {
                     ...data,
+                    departments: nextDepartments,
+                    collections,
                     families: modal.family
                       ? data.families.map((f) =>
                           f.id === family.id ? family : f,
@@ -693,8 +714,9 @@ function App() {
                       : [...data.families, family],
                   },
                   "Product saved.",
-                )
-              }
+                );
+                D(null);
+              }}
             />
           )}
           {modal.kind === "collection" && (
@@ -772,7 +794,7 @@ function App() {
                         : {
                             ...f,
                             variants: f.variants.map((v) =>
-                              v.id !== modal.p.id
+                              v.id !== modal.p.id || v.rate === rate
                                 ? v
                                 : {
                                     ...v,
@@ -791,11 +813,16 @@ function App() {
               }
             />
           )}
-          {modal.kind === "draft" && (
+          {modal.kind === "draft" && !draftCustomer && (
+            <div className="draft">
+              <Notice>This customer or collection is no longer available for sharing.</Notice>
+            </div>
+          )}
+          {modal.kind === "draft" && draftCustomer && (
             <div className="draft">
               <p>
-                <b>{modal.c.name}</b>
-                <br />+{modal.c.phone}
+                <b>{draftCustomer.name}</b>
+                <br />+{draftCustomer.phone}
               </p>
               <pre>{sampleDraft(modal.collection)}</pre>
               <Notice>
@@ -810,7 +837,7 @@ function App() {
                   className="primary"
                   target="_blank"
                   rel="noreferrer"
-                  href={chat(modal.c.phone, sampleDraft(modal.collection))}
+                  href={chat(draftCustomer.phone, sampleDraft(modal.collection))}
                 >
                   Open WhatsApp
                 </a>

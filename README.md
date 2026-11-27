@@ -22,10 +22,11 @@ configuration. Open the address printed by Wrangler. The default is
 `http://localhost:5173`. After editing source, build again and restart the
 local server if Wrangler is still serving the previous output.
 
-Run the storage and buyer-projection regression test with:
+Run the typecheck and the storage, editor and buyer-projection tests with:
 
 ```sh
-node --test tests/catalog.test.mjs
+npm run typecheck
+npm test
 ```
 
 ## Source layout

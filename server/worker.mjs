@@ -1,7 +1,6 @@
 import taxonomy from "../shared/taxonomy.json" with { type: "json" };
 const KEY = "catalog-studio/preview-v1.json";
 const FULL = "Full catalog";
-const categories = Object.values(taxonomy.departments).flat();
 const eligibleName = (s) =>
   typeof s === "string" &&
   s.length <= 100 &&
@@ -56,10 +55,19 @@ function previous(doc) {
     })),
   };
 }
-export function upgrade(doc){
- if(doc.schema===3)return doc;
- const legacy=previous(doc);
- return {...legacy,schema:3,departments:structuredClone(taxonomy.departments),families:legacy.families.map(f=>({...f,gallery:[],variants:f.variants.map(v=>({...v,purchase:""}))}))};
+export function upgrade(doc) {
+  if (doc.schema === 3) return doc;
+  const legacy = previous(doc);
+  return {
+    ...legacy,
+    schema: 3,
+    departments: structuredClone(taxonomy.departments),
+    families: legacy.families.map((family) => ({
+      ...family,
+      gallery: [],
+      variants: family.variants.map((variant) => ({ ...variant, purchase: "" })),
+    })),
+  };
 }
 const safeName=s=>name(s)&&s===s.trim()&&!["__proto__","constructor","prototype"].includes(s.toLowerCase());
 function valid(doc) {
@@ -147,7 +155,7 @@ export function buyerProducts(doc, group) {
           variant: v.variant,
           unit: v.unit,
           photo: v.overridePhoto || f.photo,
-          gallery:f.gallery,
+          gallery: f.gallery,
         })),
     );
 }
@@ -174,7 +182,8 @@ async function persistPhotos(doc, bucket) {
   }
   for (const family of doc.families) {
     family.photo = await store(family.photo);
-    family.gallery=await Promise.all(family.gallery.map(store));
+    const gallery = await Promise.all(family.gallery.map(store));
+    family.gallery = [...new Set(gallery.filter((picture) => picture !== family.photo))];
     for (const v of family.variants)
       v.overridePhoto = await store(v.overridePhoto);
   }

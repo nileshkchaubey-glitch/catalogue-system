@@ -13,7 +13,7 @@ function visit(dir) {
         ".png": "image/png",
       }[path.extname(f)];
       if (type)
-        assets["/" + path.relative("dist", f)] = {
+        assets["/" + path.relative("dist", f).split(path.sep).join("/")] = {
           type,
           data: fs.readFileSync(f).toString("base64"),
         };
