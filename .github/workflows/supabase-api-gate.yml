@@ -45,11 +45,10 @@ jobs:
           npm run build
       - name: Install pinned Supabase CLI
         timeout-minutes: 2
-        env:
-          SUPABASE_CLI_VERSION: '2.98.2'
-          SUPABASE_CLI_SHA256: '0f59df9e6837e876f309e0b4f47005133c51296e85a02727b2927f33ed9adb2d'
         run: |
           set -euo pipefail
+          SUPABASE_CLI_VERSION="$(node -p 'require("./tests/integration/supabase-runtime.json").cli.version')"
+          SUPABASE_CLI_SHA256="$(node -p 'require("./tests/integration/supabase-runtime.json").cli.linuxAmd64Sha256')"
           archive="$RUNNER_TEMP/supabase_linux_amd64.tar.gz"
           curl --fail --silent --show-error --location --retry 3 --max-time 120 \
             "https://github.com/supabase/cli/releases/download/v$SUPABASE_CLI_VERSION/supabase_linux_amd64.tar.gz" \
@@ -71,6 +70,7 @@ jobs:
           sed 's/^project_id = .*/project_id = "catalogue-api-gate-disposable"/' \
             supabase/config.toml > "$gate/supabase/config.toml"
           docker info > /dev/null
+          node tests/integration/supabase-api.mjs prepare-runtime
           if ! supabase --workdir "$gate" start \
             --exclude studio,pgmeta,edge-runtime,realtime,imgproxy,logflare,vector,supavisor > "$gate/start.log" 2>&1; then
             printf '%s\n' 'Supabase startup failed. Container states follow.'

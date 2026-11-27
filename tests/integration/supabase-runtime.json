@@ -1,0 +1,14 @@
+{
+  "cli": {
+    "version": "2.111.0",
+    "linuxAmd64Sha256": "31ee8a152e9c8c8eddae072c6bc7c9119748a96c8cdaf21a6d31c9ce7e62cc18",
+    "windowsAmd64Sha256": "7d3cf6411df2f3b50b7876b1acb12ba35a6432d830f2fec37eedb689e9dc593a"
+  },
+  "database": {
+    "repository": "public.ecr.aws/supabase/postgres",
+    "tag": "17.6.1.156",
+    "platform": "linux/amd64",
+    "manifestDigest": "sha256:665efa7e234a3c324718fd2b7fbbaaaf7263f2565bc2e8fce8555c4def4c4985",
+    "configDigest": "sha256:e98d3f79b2d520479f6a34cbc3b5e18bc66b2ee19b0be3584f98d6c7a73d9f7d"
+  }
+}

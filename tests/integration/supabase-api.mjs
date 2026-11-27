@@ -7,6 +7,7 @@ import { launchChromium, waitFor } from "../browser/chromium.mjs";
 import { photo } from "../browser/local-fixture.mjs";
 import { applyBulkMarkup, buildBulkPreview } from "../../shared/quote-pricing.mjs";
 import { localCommand, migrationFailure, migrationPsqlArgs } from "./supabase-migration-diagnostics.mjs";
+import { preparePinnedRuntime, verifyPinnedRuntime, RuntimeFailure } from "./supabase-runtime.mjs";
 
 const project = "catalogue-api-gate-disposable";
 const dbContainer = "supabase_db_" + project;
@@ -109,6 +110,20 @@ function localSettings() {
   check(/^sb_publishable_[\w-]+$/.test(PUBLISHABLE_KEY), "Local publishable key was absent.");
   check(/^sb_secret_[\w-]+$/.test(SECRET_KEY) && /^[\w-]+\.[\w-]+\.[\w-]+$/.test(SERVICE_ROLE_KEY), "Local admin keys were absent.");
   return { publishable: PUBLISHABLE_KEY, serviceRole: SERVICE_ROLE_KEY, secret: SECRET_KEY };
+}
+
+async function runtimePreflight() {
+  await step("special-grantee and denied-function runtime checks", () => {
+    const input = readFileSync(new URL("./supabase-runtime-preflight.sql", import.meta.url));
+    const startedAt = new Date().toISOString();
+    // The probe owns its BEGIN/ROLLBACK; do not nest psql's single transaction.
+    const args = migrationPsqlArgs(dbContainer).filter((arg) => arg !== "-1");
+    const result = localCommand("docker", args, input);
+    if (result.status !== 0 || result.error)
+      throw new GateFailure(migrationFailure(dbContainer, result, input, input.toString("utf8").split("\n").length - 1, startedAt));
+    check(query("select to_regnamespace('catalogue_runtime_probe') is null and not exists (select 1 from pg_roles where rolname = 'catalogue_runtime_probe_writer')") === "t",
+      "Runtime probe did not roll back its objects.");
+  });
 }
 
 async function reconcileFixture() {
@@ -516,13 +531,26 @@ async function integrate(settings) {
 }
 
 try {
-  const settings = localSettings();
-  if (process.argv[2] === "preflight") await reconcileFixture();
-  else if (process.argv[2] === "migrate") await applyMigrations();
-  else await integrate(settings);
+  const mode = process.argv[2];
+  if (mode === "prepare-runtime") {
+    checkpoint = "prepare immutable disposable database image";
+    preparePinnedRuntime();
+    console.log("PASS " + checkpoint);
+  } else {
+    checkpoint = "verify running disposable database image";
+    console.log("PASS " + checkpoint + " | " + verifyPinnedRuntime());
+    checkpoint = "local stack configuration";
+    const settings = localSettings();
+    if (mode === "preflight") {
+      await runtimePreflight();
+      await reconcileFixture();
+    } else if (mode === "migrate") await applyMigrations();
+    else if (mode === undefined) await integrate(settings);
+    else throw new GateFailure("Unknown disposable gate mode.");
+  }
 } catch (error) {
   // Do not print response bodies, command output, cookies, or error causes.
-  const detail = error instanceof GateFailure ? error.message :
+  const detail = (error instanceof GateFailure || error instanceof RuntimeFailure) ? error.message :
     error instanceof assert.AssertionError ? "Assertion failed at " + error.stack.split("\n")[1]?.trim() :
       "Unexpected " + (error instanceof Error ? error.name : "error") + ".";
   console.error("FAIL " + checkpoint + " — " + detail);

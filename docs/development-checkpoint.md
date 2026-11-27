@@ -34,7 +34,7 @@ record with a price snapshot. Validate permission boundaries and concurrent
 updates before enabling team access. Move high-volume imports and image
 processing to resumable jobs once catalogue size warrants it.
 
-## Secure backend and quotations checkpoint — 2026-11-27
+## Secure backend and quotations checkpoint ï¿½ 2026-11-27
 
 The feature branch adds a provisioned-owner login, private media gateway,
 revisioned workspace bridge, non-destructive staging, customer-specific quote
@@ -71,3 +71,34 @@ The existing PostgreSQL directory contained only `data`, and WSL enumeration
 returned `E_ACCESSDENIED`. The rolled-back SQL fixture is ready for the next
 disposable stack run. Hosted URL approval, export and media backup and
 reconciliation, and any eventual cutover remain separate.
+
+## Local runtime compatibility checkpoint
+
+The interrupted runtime work has been recovered from the review checkout.
+Supabase CLI v2.111.0's tagged Dockerfile uses PostgreSQL 17.6.1.156; the
+PostgreSQL release's Nix build pins Supautils 3.4.0. Upstream releases 3.2.2
+and 3.2.3 document fixes for the permission-denial and special-grantee crashes.
+The CLI archive hashes were checked against the release metadata.
+
+The disposable gate now prepares the manifest-pinned amd64 image, verifies
+its config ID and the running container's image and project label before
+database operations, and executes rollback-only role and permission probes
+before the migration rehearsal. The ECR public registry independently returned the exact linux/amd64
+manifest and config digest recorded in the pin. Actual Docker execution
+remains to be verified.
+Local unit tests exercise runtime mismatch and command-failure paths.
+The previous migration diagnostics and historical CI authorization guard
+remain intact; the old one-time workflow is not armed for a new run.
+
+References:
+- https://github.com/supabase/cli/releases/tag/v2.111.0
+- https://github.com/supabase/postgres/blob/17.6.1.156/nix/ext/supautils.nix
+- https://github.com/supabase/supautils/releases/tag/v3.2.2
+- https://github.com/supabase/supautils/releases/tag/v3.2.3
+
+Real Docker runtime and HTTP acceptance are still required. No live R2 or
+hosted Supabase changes are part of this local checkpoint.
+
+Dell review: 33/33 regression tests, build and all five synthetic browser/Worker
+tests passed (Chrome 158, desktop 1366x900 and touch 390x844). No Docker or
+Supabase CLI executable is available on the Dell PATH.
