@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -7,8 +6,10 @@ import { Miniflare, Log, LogLevel } from "miniflare";
 import { launchChromium, waitFor } from "../browser/chromium.mjs";
 import { photo } from "../browser/local-fixture.mjs";
 import { applyBulkMarkup, buildBulkPreview } from "../../shared/quote-pricing.mjs";
+import { localCommand, migrationFailure, migrationPsqlArgs } from "./supabase-migration-diagnostics.mjs";
 
 const project = "catalogue-api-gate-disposable";
+const dbContainer = "supabase_db_" + project;
 const migrationsDir = new URL("../../supabase/migrations/", import.meta.url);
 const migrationFiles = [
   "20261127000100_catalogue_foundation.sql",
@@ -41,13 +42,9 @@ async function step(name, run) {
   console.log("PASS " + name);
 }
 
-function localCommand(command, args, input) {
-  return spawnSync(command, args, { input, encoding: "utf8", timeout: 25000, windowsHide: true });
-}
-
 function db(sql, atomic = false) {
   return localCommand("docker", [
-    "exec", "-i", "supabase_db_" + project,
+    "exec", "-i", dbContainer,
     "psql", "-X", "-w", "-qAt", "-v", "ON_ERROR_STOP=1", "-v", "VERBOSITY=sqlstate",
     "-U", "postgres", "-d", "postgres", ...(atomic ? ["-1", "-f", "-"] : []),
   ], sql);
@@ -59,19 +56,11 @@ function query(sql) {
   return result.stdout.trim();
 }
 
-function runMigrationTransaction(sql) {
-  const result = db(sql, true);
-  if (result.status === 0) return;
-
-  // Allowlist the SQLSTATE and psql input line. The original output stays private.
-  const match = result.stderr?.match(/^(?:psql:<stdin>:(\d+): )?(?:ERROR|FATAL|PANIC):[ \t]+([A-Z0-9]{5})[ \t]*\r?$/m);
-  if (match) {
-    const [, line, state] = match;
-    throw new GateFailure("SQLSTATE " + state + (line ? " at input line " + line : "") + ".");
-  }
-  const reason = result.status !== null ? "exit " + result.status :
-    result.error?.code === "ETIMEDOUT" ? "timed out" : "could not complete";
-  throw new GateFailure("Container-local psql " + reason + " without a PostgreSQL SQLSTATE.");
+function runMigrationTransaction(input, sourceLineCount) {
+  const startedAt = new Date().toISOString();
+  const result = localCommand("docker", migrationPsqlArgs(dbContainer), input);
+  if (result.status === 0 && !result.error) return;
+  throw new GateFailure(migrationFailure(dbContainer, result, input, sourceLineCount, startedAt));
 }
 
 async function applyMigrations() {
@@ -102,7 +91,8 @@ async function applyMigrations() {
       const sourceHex = sql.subarray(0, -2).toString("hex");
       const history = "insert into supabase_migrations.schema_migrations (version, name, statements)\n" +
         "values ('" + version + "', '" + name + "', array[convert_from(decode('" + sourceHex + "', 'hex'), 'UTF8')]);\n";
-      runMigrationTransaction(Buffer.concat([sql, Buffer.from(history)]));
+      const sourceLineCount = sql.toString("utf8").split("\n").length - 1;
+      runMigrationTransaction(Buffer.concat([sql, Buffer.from(history)]), sourceLineCount);
     });
   }
 }

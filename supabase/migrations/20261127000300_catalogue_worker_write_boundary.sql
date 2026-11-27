@@ -46,7 +46,12 @@ revoke all on catalogue_private.workspace_write_key from public, anon, authentic
 -- This role can only act inside the private save function. It has no Auth
 -- or Storage access and remains subject to workspace RLS.
 create role catalogue_workspace_writer nologin noinherit nobypassrls;
-grant catalogue_workspace_writer to current_user with inherit false, set true;
+-- Older supautils builds crash on CURRENT_USER as a role grantee.
+do $$
+begin
+  execute format('grant catalogue_workspace_writer to %I with inherit false, set true', current_user);
+end;
+$$;
 grant usage on schema public, catalogue_private to catalogue_workspace_writer;
 grant execute on function catalogue_private.active_session_owner(),
   catalogue_private.has_workspace_shape(jsonb) to catalogue_workspace_writer;
