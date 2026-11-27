@@ -48,7 +48,7 @@ export function migrationPsqlArgs(container) {
   return [...psqlArgs(container), "--echo-all", "-o", "/dev/null", "-1", "-f", "-"];
 }
 
-function commandStatus(result) {
+export function commandStatus(result) {
   if (result.error) return Object.hasOwn(processErrors, result.error.code)
     ? processErrors[result.error.code] : "process error";
   if (/^SIG[A-Z0-9]+$/.test(result.signal ?? "")) return result.signal;

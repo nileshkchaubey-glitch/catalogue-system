@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { localCommand } from "./supabase-migration-diagnostics.mjs";
+import { commandStatus, localCommand } from "./supabase-migration-diagnostics.mjs";
 
 export const disposableProject = "catalogue-api-gate-disposable";
 export const databaseContainer = "supabase_db_" + disposableProject;
@@ -9,10 +9,14 @@ const taggedImage = database.repository + ":" + database.tag;
 const imageFormat = "{{.Id}}|{{.Os}}/{{.Architecture}}";
 const pullTimeout = 150000; // Two attempts share the original five-minute pull budget.
 const pullErrors = [
-  [/toomanyrequests|too many requests|rate (?:limit|exceeded)|\b429\b/i, "registry rate limited"],
-  [/unauthorized|denied|forbidden|\b40[13]\b/i, "registry denied access"],
-  [/manifest unknown|no matching manifest|manifest.*not found/i, "manifest unavailable"],
-  [/no such host|timed? out|connection refused|connection reset|TLS handshake|unexpected EOF/i, "network error"],
+  [/cannot connect to the docker daemon|is the docker daemon running|error during connect|permission denied.*docker daemon|docker daemon.*permission denied/i, "Docker daemon unavailable"],
+  [/no space left on device|disk quota exceeded|not enough disk space/i, "insufficient disk space"],
+  [/no matching manifest for|does not match the specified platform|no match for platform|unsupported platform/i, "platform unavailable"],
+  [/digest mismatch|unexpected digest|checksum mismatch|filesystem layer verification failed|failed size validation|digest[^\r\n]*(?:verification failed|does not match)/i, "digest or content integrity error"],
+  [/toomanyrequests|too many requests|rate (?:limit|exceeded)/i, "registry rate limited"],
+  [/unauthorized|access denied|pull access denied|forbidden|authentication required|insufficient.scope/i, "registry denied access"],
+  [/manifest unknown|name unknown|manifest[^\r\n]*not found|repository[^\r\n]*not found/i, "image or manifest unavailable"],
+  [/no such host|temporary failure in name resolution|timed? out|deadline exceeded|connection refused|connection reset|TLS handshake|x509:|unexpected EOF|proxyconnect|dial tcp/i, "network error"],
 ];
 
 export class RuntimeFailure extends Error {}
@@ -44,13 +48,32 @@ function assertImage(run, reference) {
   }
 }
 
-export function preparePinnedRuntime(run = localCommand) {
+function describePullFailure(result) {
+  const stderr = result.stderr ?? "";
+  const http = stderr.match(/\b(?:HTTP(?:\/\d(?:\.\d)?)?\s+|(?:unexpected|returned|received) status(?: code)?[:=]?\s+)([45]\d\d)\b/i)?.[1] ??
+    stderr.match(/:\s*([45]\d\d)\s+(?:Bad Request|Unauthorized|Forbidden|Not Found|Too Many Requests|Internal Server Error|Bad Gateway|Service Unavailable|Gateway Timeout)\b/i)?.[1];
+  const responseCategory = {
+    401: "registry denied access",
+    403: "registry denied access",
+    404: "image or manifest unavailable",
+    429: "registry rate limited",
+  }[http];
+  const stderrCategory = pullErrors.find(([pattern]) => pattern.test(stderr))?.[1];
+  const category = stderrCategory ?? responseCategory ?? (http?.startsWith("5") ? "registry server error" : undefined);
+  const evidence = [commandStatus(result)];
+  if (http) evidence.push("HTTP " + http);
+  evidence.push(category ?? (stderr.trim() ? "unrecognized stderr" : "empty stderr"));
+  return evidence.join(" | ");
+}
+
+export function preparePinnedRuntime(run = localCommand, report = () => {}) {
   assertLocalTools(run);
-  const failures = [];
   for (const repository of [database.repository, database.mirrorRepository]) {
+    const registry = repository.split("/")[0];
     const image = repository + "@" + database.manifestDigest;
     const result = run("docker", ["image", "pull", "--quiet", "--platform", database.platform, image], undefined, pullTimeout);
     if (result.status === 0 && !result.error) {
+      report("Docker pull " + registry + ": completed");
       assertImage(run, image);
       // Populate the default CLI tag regardless of which registry served the bytes.
       command(run, "docker", ["image", "tag", image, taggedImage],
@@ -59,12 +82,10 @@ export function preparePinnedRuntime(run = localCommand) {
       return;
     }
 
-    // Expose only fixed categories; Docker output can contain sensitive URLs.
-    const category = result.error?.code === "ETIMEDOUT" ? "timed out" :
-      pullErrors.find(([pattern]) => pattern.test(result.stderr ?? ""))?.[1] ?? "pull failed";
-    failures.push(repository.split("/")[0] + ": " + category);
+    // Docker output may include credentials or signed URLs. Report only classified evidence.
+    report("Docker pull " + registry + ": " + describePullFailure(result));
   }
-  throw new RuntimeFailure("Could not pull the immutable Supabase database image (" + failures.join(", ") + ").");
+  throw new RuntimeFailure("Neither registry supplied the pinned Supabase database image.");
 }
 
 export function verifyPinnedRuntime(run = localCommand) {

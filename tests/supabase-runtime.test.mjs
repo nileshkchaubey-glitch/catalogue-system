@@ -40,7 +40,10 @@ function localEnvironment(run) {
 
 test("runtime pin uses immutable image pull and validates both image references", () => localEnvironment(() => {
   const { run, calls } = fixture();
-  preparePinnedRuntime(run);
+  const reports = [];
+  preparePinnedRuntime(run, (message) => reports.push(message));
+  assert.deepEqual(reports, ["Docker pull public.ecr.aws: completed"]);
+  assert.equal(calls.filter(({ args }) => args[1] === "pull").length, 1);
   assert.deepEqual(calls[2].args, ["image", "pull", "--quiet", "--platform", database.platform, pinned]);
   assert.equal(calls[2].timeout, 150000);
   assert.deepEqual(calls[4].args, ["image", "tag", pinned, tagged]);
@@ -49,7 +52,13 @@ test("runtime pin uses immutable image pull and validates both image references"
 
 test("runtime preparation can use the same immutable manifest from the official mirror", () => localEnvironment(() => {
   const { run, calls } = fixture({ pulls: { [pinned]: failure } });
-  preparePinnedRuntime(run);
+  const reports = [];
+  preparePinnedRuntime(run, (message) => reports.push(message));
+  assert.deepEqual(reports, [
+    "Docker pull public.ecr.aws: exit 1 | unrecognized stderr",
+    "Docker pull ghcr.io: completed",
+  ]);
+  assert.equal(calls.filter(({ args }) => args[1] === "pull").length, 2);
   assert.deepEqual(calls[3].args, ["image", "pull", "--quiet", "--platform", database.platform, mirror]);
   assert.equal(calls[3].timeout, 150000);
   assert.equal(calls[4].args.at(-1), mirror);
@@ -62,15 +71,36 @@ test("runtime preparation can use the same immutable manifest from the official 
 }));
 
 test("runtime pull failure reports allowlisted categories without leaking subprocess output", () => localEnvironment(() => {
-  const { run, calls } = fixture({ pulls: {
-    [pinned]: { ...failure, stderr: "toomanyrequests: private fixture output" },
-    [mirror]: { ...failure, stderr: "manifest unknown: private fixture output" },
-  } });
-  assert.throws(() => preparePinnedRuntime(run), {
-    name: "Error",
-    message: "Could not pull the immutable Supabase database image (public.ecr.aws: registry rate limited, ghcr.io: manifest unavailable).",
-  });
-  assert.equal(calls.some(({ args }) => args[1] === "tag"), false);
+  const cases = [
+    ["unexpected status from HEAD request to https://example.test/image: 429 Too Many Requests", "exit 1 | HTTP 429 | registry rate limited"],
+    ["received status code: 401", "exit 1 | HTTP 401 | registry denied access"],
+    ["HTTP/1.1 403 Forbidden", "exit 1 | HTTP 403 | registry denied access"],
+    ["manifest unknown", "exit 1 | image or manifest unavailable"],
+    ["HTTP 404", "exit 1 | HTTP 404 | image or manifest unavailable"],
+    ["unexpected status: 503", "exit 1 | HTTP 503 | registry server error"],
+    ["dial tcp: unexpected EOF", "exit 1 | network error"],
+    ["filesystem layer verification failed", "exit 1 | digest or content integrity error"],
+    ["no matching manifest for linux/amd64", "exit 1 | platform unavailable"],
+    ["no space left on device", "exit 1 | insufficient disk space"],
+    ["Cannot connect to the Docker daemon", "exit 1 | Docker daemon unavailable"],
+    ["unclassified error mentioning account 429", "exit 1 | unrecognized stderr"],
+    ["", "exit 1 | empty stderr"],
+  ];
+  for (const [stderr, expected] of cases) {
+    const { run, calls } = fixture({ pulls: {
+      [pinned]: { ...failure, stderr: stderr && stderr + "\nAuthorization: Bearer fixture-secret" },
+      [mirror]: { ...failure, status: null, error: { code: "ETIMEDOUT", message: "fixture-secret" }, stderr: "" },
+    } });
+    const reports = [];
+    assert.throws(() => preparePinnedRuntime(run, (message) => reports.push(message)),
+      /Neither registry supplied the pinned Supabase database image/);
+    assert.deepEqual(reports, [
+      "Docker pull public.ecr.aws: " + expected,
+      "Docker pull ghcr.io: timed out | empty stderr",
+    ]);
+    assert.equal(calls.filter(({ args }) => args[1] === "pull").length, 2);
+    assert.equal(calls.some(({ args }) => args[1] === "tag"), false);
+  }
 }));
 
 test("runtime preparation rejects incompatible CLI, remote Docker, and mismatched images", () => localEnvironment(() => {

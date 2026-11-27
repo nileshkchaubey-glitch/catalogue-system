@@ -534,7 +534,7 @@ try {
   const mode = process.argv[2];
   if (mode === "prepare-runtime") {
     checkpoint = "prepare immutable disposable database image";
-    preparePinnedRuntime();
+    preparePinnedRuntime(localCommand, (message) => console.log(message));
     console.log("PASS " + checkpoint);
   } else {
     checkpoint = "verify running disposable database image";
