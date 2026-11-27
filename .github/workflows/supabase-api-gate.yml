@@ -16,10 +16,11 @@ concurrency:
 
 jobs:
   integration:
-    # Only the first fast-forward from the approved candidate runs this job.
+    # Only the approved fast-forward on the public repository runs this job.
     if: >-
       github.repository == 'nileshkchaubey-glitch/catalogue-system' &&
-      github.event.before == '06fd541b2eab42ecda9b6f7744c8f53a27db2327' &&
+      toJSON(github.event.repository.private) == 'false' &&
+      github.event.before == 'bf60610297e1e5d4d95b0096c382078343008eb0' &&
       !github.event.created && !github.event.deleted && !github.event.forced &&
       github.run_attempt == 1
     runs-on: ubuntu-24.04
@@ -27,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          fetch-depth: 2
+          fetch-depth: 7
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -36,10 +37,18 @@ jobs:
         timeout-minutes: 3
         run: |
           set -euo pipefail
-          candidate=06fd541b2eab42ecda9b6f7744c8f53a27db2327
+          original=06fd541b2eab42ecda9b6f7744c8f53a27db2327
+          previous=bf60610297e1e5d4d95b0096c382078343008eb0
+          candidate=67d2dbdf1b73b2309d0f1e6a36b7e652968f6482
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$(git rev-list --parents -n 1 HEAD)" = "$GITHUB_SHA $candidate"
-          git diff --quiet "$candidate" HEAD -- supabase/ tests/integration/legacy-foundation.sql
+          git merge-base --is-ancestor "$original" "$previous"
+          git merge-base --is-ancestor "$previous" "$candidate"
+          git merge-base --is-ancestor "$candidate" HEAD
+          # Preserve the original database inputs except for the exact reviewed SQL patch.
+          git diff --quiet "$original" "$candidate" -- supabase/ tests/integration/legacy-foundation.sql \
+            ':(exclude,top,literal)supabase/migrations/20261127000300_catalogue_worker_write_boundary.sql'
+          # The workflow is the only permitted change after the reviewed candidate.
+          git diff --quiet "$candidate" HEAD -- . ':(exclude,top,literal).github/workflows/supabase-api-gate.yml'
           npm ci --no-audit --no-fund
           npm test
           npm run build
