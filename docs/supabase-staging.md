@@ -210,3 +210,18 @@ hosted database is required. The runner is not a CI trigger.
 
 A failed check is not a successful test. Do not use a shared Docker host or
 another project's stack. If cleanup fails, keep the isolated host for recovery.
+
+## Hosted foundation preflight (28 November 2026)
+
+The dedicated hosted project was inspected read-only. It contains the original
+foundation migration, no business profiles, Auth users/sessions or media
+objects, and a matching private 5 MiB media bucket. Its owner index is not
+unique; its policy names include business_profiles_insert/select/update and
+catalogue_media_select/update/delete. The previously successful disposable
+gate used a different synthetic legacy fixture. The reviewed local follow-up
+adds owner uniqueness (duplicates fail rather than merge), removes the known
+legacy aliases, and blocks client mutation/deletion of content-addressed media
+with restrictive policies scoped to catalogue-media. The fixture now covers
+both sets of legacy names and an additional permissive mutation policy. The
+real gate must pass again on the exact revised migration before hosted apply.
+No hosted migration, profile creation, or production configuration was applied.

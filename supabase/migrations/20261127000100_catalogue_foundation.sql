@@ -15,6 +15,21 @@ create index if not exists catalogue_profile_owner_idx
   on public.business_profiles (owner_id);
 alter table public.business_profiles enable row level security;
 
+-- The hosted legacy foundation has only a non-unique owner index.
+-- Refuse a duplicate-owner inventory rather than silently merging records.
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.business_profiles'::regclass and contype = 'u'
+      and pg_get_constraintdef(oid) = 'UNIQUE (owner_id)'
+  ) then
+    alter table public.business_profiles
+      add constraint catalogue_profile_owner_unique unique (owner_id);
+  end if;
+end;
+$$;
+
 revoke all on public.business_profiles from public, anon, authenticated;
 grant select on public.business_profiles to authenticated;
 
@@ -23,6 +38,10 @@ grant select on public.business_profiles to authenticated;
 drop policy if exists catalogue_profiles_read on public.business_profiles;
 drop policy if exists catalogue_profiles_guard on public.business_profiles;
 drop policy if exists catalogue_profiles_no_client_delete on public.business_profiles;
+-- The existing hosted foundation used these alternative policy names.
+drop policy if exists business_profiles_insert on public.business_profiles;
+drop policy if exists business_profiles_select on public.business_profiles;
+drop policy if exists business_profiles_update on public.business_profiles;
 
 create policy catalogue_profiles_read on public.business_profiles
   for select to authenticated using (owner_id = (select auth.uid()));
@@ -75,6 +94,9 @@ drop policy if exists catalogue_media_no_anon on storage.objects;
 drop policy if exists catalogue_media_owner_guard on storage.objects;
 drop policy if exists catalogue_media_read on storage.objects;
 drop policy if exists catalogue_media_insert on storage.objects;
+drop policy if exists catalogue_media_select on storage.objects;
+drop policy if exists catalogue_media_update on storage.objects;
+drop policy if exists catalogue_media_delete on storage.objects;
 
 create policy catalogue_media_no_anon on storage.objects
   as restrictive for all to anon
@@ -92,6 +114,14 @@ create policy catalogue_media_owner_guard on storage.objects
       and (select catalogue_private.has_provisioned_profile())
     )
   );
+-- A content-addressed image must not be replaced or removed by an owner.
+-- Scope the restrictive guards to this bucket; other buckets are unchanged.
+create policy catalogue_media_no_client_update on storage.objects
+  as restrictive for update to authenticated
+  using (bucket_id <> 'catalogue-media') with check (bucket_id <> 'catalogue-media');
+create policy catalogue_media_no_client_delete on storage.objects
+  as restrictive for delete to authenticated
+  using (bucket_id <> 'catalogue-media');
 create policy catalogue_media_read on storage.objects
   for select to authenticated using (bucket_id = 'catalogue-media');
 create policy catalogue_media_insert on storage.objects

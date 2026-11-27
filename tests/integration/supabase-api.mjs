@@ -132,6 +132,8 @@ async function reconcileFixture() {
     const fixture = readFileSync(new URL("./legacy-foundation.sql", import.meta.url), "utf8");
     check(db(fixture, true).status === 0, "Synthetic legacy fixture could not be prepared.");
     check(query("select count(*) from pg_policies where policyname in ('catalogue_profiles_read', 'catalogue_profiles_guard', 'catalogue_profiles_no_client_delete', 'catalogue_media_no_anon', 'catalogue_media_owner_guard', 'catalogue_media_read', 'catalogue_media_insert')") === "7", "Expected all seven legacy policies.");
+    check(query("select count(*) from pg_policies where policyname in ('business_profiles_insert', 'business_profiles_select', 'business_profiles_update', 'catalogue_media_select', 'catalogue_media_update', 'catalogue_media_delete')") === "6", "Expected hosted legacy aliases.");
+    check(query("select count(*) from pg_constraint where conrelid = 'public.business_profiles'::regclass and contype = 'u' and pg_get_constraintdef(oid) = 'UNIQUE (owner_id)'") === "0", "Expected hosted legacy owner index without uniqueness.");
   });
 
   await step("incompatible bucket aborts the foundation transaction", () => {
@@ -313,7 +315,9 @@ async function integrate(settings) {
         "Migration history cannot reconstruct " + file + ".");
     }
     assert.equal(query("select count(*) from pg_constraint where conrelid = 'public.business_profiles'::regclass and contype = 'u' and pg_get_constraintdef(oid) = 'UNIQUE (owner_id)'"), "1");
-    assert.equal(query("select count(*) from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'gate_unrelated_media_policy'"), "1");
+    assert.equal(query("select count(*) from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname in ('gate_unrelated_media_policy', 'gate_unrelated_update_policy', 'gate_unrelated_delete_policy')"), "3");
+    assert.equal(query("select count(*) from pg_policies where policyname in ('business_profiles_insert', 'business_profiles_select', 'business_profiles_update', 'catalogue_media_select', 'catalogue_media_update', 'catalogue_media_delete')"), "0");
+    assert.equal(query("select count(*) from pg_policies where schemaname = 'storage' and tablename = 'objects' and permissive = 'RESTRICTIVE' and policyname in ('catalogue_media_no_client_update','catalogue_media_no_client_delete')"), "2");
     assert.equal(query("select count(*) from storage.buckets where id = 'catalogue-media' and name = id and not public and file_size_limit = 5242880 and allowed_mime_types = array['image/jpeg','image/png','image/webp']"), "1");
   });
 
@@ -420,6 +424,22 @@ async function integrate(settings) {
       await expectStorageDenied(await api(objectPath, { token: bob.token }));
       await expectStorageDenied(await api(objectPath, { token: third }));
       await expectStorageDenied(await api(objectPath));
+      // Run SQL metadata mutation checks inside a transaction on the disposable
+      // fixture only, under the actual owner's authenticated session.
+      const claims = JSON.parse(Buffer.from(alice.token.split(".")[1], "base64url").toString("utf8"));
+      const sessionId = claims.session_id;
+      check(revisionPattern.test(sessionId), "Expected real Auth session ID.");
+      const safeClaims = JSON.stringify({ sub: userA.id, role: "authenticated", is_anonymous: false, session_id: sessionId });
+      const metadataPath = userA.id + "/" + digest + ".jpg";
+      const result = db("set local role authenticated;\n" +
+        "select set_config('request.jwt.claims', '" + safeClaims + "', true);\n" +
+        "with changed as (update storage.objects set name = name where bucket_id = 'catalogue-media' and name = '" + metadataPath + "' returning 1) select count(*) from changed;\n" +
+        "with removed as (delete from storage.objects where bucket_id = 'catalogue-media' and name = '" + metadataPath + "' returning 1) select count(*) from removed;\n", true);
+      check(result.status === 0 && result.stdout.trim().split(/\r?\n/).slice(-2).join(",") === "0,0",
+        "An authenticated owner could alter or remove content-addressed media metadata.");
+      const preserved = await api(objectPath, { token: alice.token });
+      expectStatus(preserved, 200);
+      assert.deepEqual(Buffer.from(await preserved.arrayBuffer()), photo);
       console.log("JPEG bytes " + photo.length + ", SHA-256 " + digest);
     });
 
