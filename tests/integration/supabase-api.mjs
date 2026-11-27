@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { Miniflare, Log, LogLevel } from "miniflare";
 import { launchChromium, waitFor } from "../browser/chromium.mjs";
@@ -9,6 +9,12 @@ import { photo } from "../browser/local-fixture.mjs";
 import { applyBulkMarkup, buildBulkPreview } from "../../shared/quote-pricing.mjs";
 
 const project = "catalogue-api-gate-disposable";
+const migrationsDir = new URL("../../supabase/migrations/", import.meta.url);
+const migrationFiles = [
+  "20261127000100_catalogue_foundation.sql",
+  "20261127000200_catalogue_workspace_bridge.sql",
+  "20261127000300_catalogue_worker_write_boundary.sql",
+];
 const localOrigin = "http://127.0.0.1:54321";
 const revisionPattern = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
@@ -42,7 +48,7 @@ function localCommand(command, args, input) {
 function db(sql, atomic = false) {
   return localCommand("docker", [
     "exec", "-i", "supabase_db_" + project,
-    "psql", "-X", "-qAt", "-v", "ON_ERROR_STOP=1", "-v", "VERBOSITY=sqlstate",
+    "psql", "-X", "-w", "-qAt", "-v", "ON_ERROR_STOP=1", "-v", "VERBOSITY=sqlstate",
     "-U", "postgres", "-d", "postgres", ...(atomic ? ["-1", "-f", "-"] : []),
   ], sql);
 }
@@ -51,6 +57,54 @@ function query(sql) {
   const result = db(sql);
   check(result.status === 0, "Local SQL verification failed.");
   return result.stdout.trim();
+}
+
+function runMigrationTransaction(sql) {
+  const result = db(sql, true);
+  if (result.status === 0) return;
+
+  // Allowlist the SQLSTATE and psql input line. The original output stays private.
+  const match = result.stderr?.match(/^(?:psql:<stdin>:(\d+): )?(?:ERROR|FATAL|PANIC):[ \t]+([A-Z0-9]{5})[ \t]*\r?$/m);
+  if (match) {
+    const [, line, state] = match;
+    throw new GateFailure("SQLSTATE " + state + (line ? " at input line " + line : "") + ".");
+  }
+  const reason = result.status !== null ? "exit " + result.status :
+    result.error?.code === "ETIMEDOUT" ? "timed out" : "could not complete";
+  throw new GateFailure("Container-local psql " + reason + " without a PostgreSQL SQLSTATE.");
+}
+
+async function applyMigrations() {
+  checkpoint = "exact migration inventory";
+  assert.deepEqual(readdirSync(migrationsDir).sort(), migrationFiles);
+
+  await step("initialize empty Supabase migration history", () => {
+    runMigrationTransaction(
+      "set local lock_timeout = '4s';\n" +
+      "create schema if not exists supabase_migrations;\n" +
+      "create table if not exists supabase_migrations.schema_migrations (version text primary key);\n" +
+      "alter table supabase_migrations.schema_migrations add column if not exists name text;\n" +
+      "alter table supabase_migrations.schema_migrations add column if not exists statements text[];\n"
+    );
+    check(query("select count(*) from supabase_migrations.schema_migrations") === "0",
+      "Expected empty migration history on the disposable stack.");
+  });
+
+  for (const file of migrationFiles) {
+    await step("apply migration " + file, () => {
+      console.log("START " + checkpoint);
+      const sql = readFileSync(new URL(file, migrationsDir));
+      // The pinned CLI's fetch joins statement entries with semicolons and adds
+      // a final semicolon and newline. Store one block to round-trip the file.
+      check(sql.subarray(-2).toString() === ";\n", "Expected a semicolon and LF at the end of the tracked SQL.");
+      const version = file.slice(0, 14);
+      const name = file.slice(15, -4);
+      const sourceHex = sql.subarray(0, -2).toString("hex");
+      const history = "insert into supabase_migrations.schema_migrations (version, name, statements)\n" +
+        "values ('" + version + "', '" + name + "', array[convert_from(decode('" + sourceHex + "', 'hex'), 'UTF8')]);\n";
+      runMigrationTransaction(Buffer.concat([sql, Buffer.from(history)]));
+    });
+  }
 }
 
 function localSettings() {
@@ -76,7 +130,7 @@ async function reconcileFixture() {
   });
 
   await step("incompatible bucket aborts the foundation transaction", () => {
-    const migration = readFileSync(new URL("../../supabase/migrations/20261127000100_catalogue_foundation.sql", import.meta.url), "utf8");
+    const migration = readFileSync(new URL(migrationFiles[0], migrationsDir), "utf8");
     const result = db("update storage.buckets set public = true where id = 'catalogue-media';\n" + migration, true);
     check(result.status !== 0 && /\bP0001\b/.test(result.stderr), "Expected the bucket-contract exception.");
     check(query("select not public from storage.buckets where id = 'catalogue-media'") === "t", "Bucket change did not roll back.");
@@ -236,8 +290,16 @@ async function integrate(settings) {
   await step("PostgreSQL migrations preserved the legacy profile and bucket contract", () => {
     assert.match(query("show server_version"), /^17\./);
     console.log("PostgreSQL " + query("show server_version").split(" ")[0]);
-    assert.equal(query("select string_agg(version, ',' order by version) from supabase_migrations.schema_migrations"),
-      "20261127000100,20261127000200,20261127000300");
+    assert.equal(query("select string_agg(version || '_' || name || '.sql', ',' order by version) from supabase_migrations.schema_migrations"),
+      migrationFiles.join(","));
+    for (const file of migrationFiles) {
+      const recordedHash = query(
+        "select encode(sha256(convert_to(array_to_string(statements, E';\\n') || E';\\n', 'UTF8')), 'hex') " +
+        "from supabase_migrations.schema_migrations where version = '" + file.slice(0, 14) + "';"
+      );
+      check(recordedHash === sha256(readFileSync(new URL(file, migrationsDir))),
+        "Migration history cannot reconstruct " + file + ".");
+    }
     assert.equal(query("select count(*) from pg_constraint where conrelid = 'public.business_profiles'::regclass and contype = 'u' and pg_get_constraintdef(oid) = 'UNIQUE (owner_id)'"), "1");
     assert.equal(query("select count(*) from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'gate_unrelated_media_policy'"), "1");
     assert.equal(query("select count(*) from storage.buckets where id = 'catalogue-media' and name = id and not public and file_size_limit = 5242880 and allowed_mime_types = array['image/jpeg','image/png','image/webp']"), "1");
@@ -466,6 +528,7 @@ async function integrate(settings) {
 try {
   const settings = localSettings();
   if (process.argv[2] === "preflight") await reconcileFixture();
+  else if (process.argv[2] === "migrate") await applyMigrations();
   else await integrate(settings);
 } catch (error) {
   // Do not print response bodies, command output, cookies, or error causes.

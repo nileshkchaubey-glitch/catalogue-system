@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - feat/supabase-api-gate-20261127
+    paths:
+      - .github/workflows/supabase-api-gate.yml
 
 permissions:
   contents: read
@@ -14,23 +16,35 @@ concurrency:
 
 jobs:
   integration:
-    if: github.repository == 'nileshkchaubey-glitch/catalogue-system' && github.event.created && github.run_attempt == 1
+    # Only the first fast-forward from the approved candidate runs this job.
+    if: >-
+      github.repository == 'nileshkchaubey-glitch/catalogue-system' &&
+      github.event.before == '06fd541b2eab42ecda9b6f7744c8f53a27db2327' &&
+      !github.event.created && !github.event.deleted && !github.event.forced &&
+      github.run_attempt == 1
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
+          fetch-depth: 2
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '24.16.0'
       - name: Verify checkout, install, test and build
+        timeout-minutes: 3
         run: |
+          set -euo pipefail
+          candidate=06fd541b2eab42ecda9b6f7744c8f53a27db2327
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-list --parents -n 1 HEAD)" = "$GITHUB_SHA $candidate"
+          git diff --quiet "$candidate" HEAD -- supabase/ tests/integration/legacy-foundation.sql
           npm ci --no-audit --no-fund
           npm test
           npm run build
       - name: Install pinned Supabase CLI
+        timeout-minutes: 2
         env:
           SUPABASE_CLI_VERSION: '2.98.2'
           SUPABASE_CLI_SHA256: '0f59df9e6837e876f309e0b4f47005133c51296e85a02727b2927f33ed9adb2d'
@@ -45,7 +59,8 @@ jobs:
           tar -xzf "$archive" -C "$RUNNER_TEMP/supabase-bin" supabase
           test "$("$RUNNER_TEMP/supabase-bin/supabase" --version)" = "$SUPABASE_CLI_VERSION"
           printf '%s\n' "$RUNNER_TEMP/supabase-bin" >> "$GITHUB_PATH"
-      - name: Start disposable stack and apply migrations
+      - name: Start disposable stack and verify legacy reconciliation fixture
+        timeout-minutes: 8
         env:
           SUPABASE_TELEMETRY_DISABLED: '1'
         run: |
@@ -64,23 +79,40 @@ jobs:
           fi
           printf '%s\n' 'Disposable Docker stack started.'
           node tests/integration/supabase-api.mjs preflight
-          cp -R supabase/migrations "$gate/supabase/migrations"
-          if ! supabase --workdir "$gate" migration up --local > "$gate/migrations.log" 2>&1; then
-            printf '%s\n' 'Local migrations failed.'
-            sed -nE '/^Applying migration [0-9]+_[a-z_]+\.sql/p; s/.*SQLSTATE ([0-9A-Z]{5}).*/SQLSTATE \1/p' "$gate/migrations.log"
-            exit 1
-          fi
-          printf '%s\n' 'All tracked migrations applied through the local CLI.'
+      - name: Apply versioned migrations over the container-local socket
+        timeout-minutes: 2
+        env:
+          SUPABASE_TELEMETRY_DISABLED: '1'
+        run: node tests/integration/supabase-api.mjs migrate
       - name: Verify packaged Worker and real Supabase HTTP APIs
+        timeout-minutes: 5
         env:
           SUPABASE_TELEMETRY_DISABLED: '1'
         run: node tests/integration/supabase-api.mjs
       - name: Stop disposable stack
         if: always()
+        timeout-minutes: 2
         env:
           SUPABASE_TELEMETRY_DISABLED: '1'
         run: |
+          set -euo pipefail
           gate="$RUNNER_TEMP/catalogue-supabase-gate"
           if [ -f "$gate/supabase/config.toml" ]; then
-            supabase --workdir "$gate" stop --no-backup > /dev/null 2>&1
+            trap 'rm -f -- "$gate/start.log"' EXIT
+            if ! timeout 90s supabase --workdir "$gate" stop --no-backup > /dev/null 2>&1; then
+              printf '%s\n' 'Disposable Supabase cleanup failed.'
+              exit 1
+            fi
+            label='label=com.supabase.cli.project=catalogue-api-gate-disposable'
+            if ! containers=$(docker ps -aq --filter "$label" 2>/dev/null) ||
+               ! volumes=$(docker volume ls -q --filter "$label" 2>/dev/null) ||
+               ! networks=$(docker network ls -q --filter "$label" 2>/dev/null); then
+              printf '%s\n' 'Could not verify disposable Docker resource cleanup.'
+              exit 1
+            fi
+            if [ -n "$containers$volumes$networks" ]; then
+              printf '%s\n' 'Disposable Docker resources remain after cleanup.'
+              exit 1
+            fi
+            printf '%s\n' 'Disposable Supabase stack stopped. No labeled Docker resources remain.'
           fi
