@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { Readable } from "node:stream";
 import { access } from "node:fs/promises";
@@ -91,7 +91,7 @@ async function serve(handle) {
   };
 }
 
-function fakeSupabase() {
+function fakeSupabase(writeKey) {
   const audit = [];
   const profiles = new Map([
     [owners.desktop.id, {
@@ -116,11 +116,12 @@ function fakeSupabase() {
   const unauthenticated = () => Response.json({ message: "Invalid fixture session" }, { status: 401 });
   const denied = () => Response.json({ code: "42501" }, { status: 403 });
 
-  function issue(owner) {
+  function issue(session) {
+    const { owner } = session;
     const access = "fixture-access-" + randomUUID();
     const refresh = "fixture-refresh-" + randomUUID();
-    accessTokens.set(access, owner);
-    refreshTokens.set(refresh, owner);
+    accessTokens.set(access, session);
+    refreshTokens.set(refresh, session);
     return Response.json({
       access_token: access,
       refresh_token: refresh,
@@ -134,27 +135,31 @@ function fakeSupabase() {
   async function handle(request, url) {
     assert.equal(request.headers.get("apikey"), publishableKey);
     const token = request.headers.get("authorization")?.replace(/^Bearer /, "");
-    const actor = accessTokens.get(token);
+    const session = accessTokens.get(token);
+    const actor = session?.owner;
     const { pathname, searchParams } = url;
     const { method } = request;
     audit.push({ actor: actor?.id, method, pathname, ownerFilter: searchParams.get("owner_id") });
+    const capability = request.headers.get("X-Catalogue-Workspace-Write-Key");
+    if (pathname !== "/rest/v1/rpc/save_catalogue_workspace") assert.equal(capability, null);
     if (pathname === "/auth/v1/token" && method === "POST") {
       const body = await request.json();
       if (searchParams.get("grant_type") === "refresh_token") {
-        const owner = refreshTokens.get(body.refresh_token);
-        if (!owner) return unauthenticated();
+        const renewed = refreshTokens.get(body.refresh_token);
+        if (!renewed?.active) return unauthenticated();
         refreshTokens.delete(body.refresh_token);
-        return issue(owner);
+        return issue(renewed);
       }
       if (searchParams.get("grant_type") !== "password") return unauthenticated();
       const owner = Object.values(owners).find((item) => item.email === body.email && item.password === body.password);
-      return owner ? issue(owner) : unauthenticated();
+      return owner ? issue({ owner, active: true }) : unauthenticated();
     }
     if (!actor) return unauthenticated();
     if (pathname === "/auth/v1/user" && method === "GET")
       return Response.json({ id: actor.id, email: actor.email, is_anonymous: false, role: "authenticated" });
     if (pathname === "/auth/v1/logout" && method === "POST") {
-      accessTokens.delete(token);
+      if (!session.active) return unauthenticated();
+      session.active = false;
       return new Response(null, { status: 204 });
     }
 
@@ -162,23 +167,24 @@ function fakeSupabase() {
     if (pathname === "/rest/v1/business_profiles" && method === "GET") {
       if (!ownFilter) return denied();
       const profile = profiles.get(actor.id);
-      return Response.json(profile ? [profile] : []);
+      return Response.json(session.active && profile ? [profile] : []);
     }
-    if (!profiles.has(actor.id)) return denied();
+    if (!session.active || !profiles.has(actor.id)) return denied();
     if (pathname === "/rest/v1/catalogue_workspaces") {
-      if (method !== "POST" && !ownFilter) return denied();
+      if (method !== "GET" || !ownFilter) return denied();
       const row = rows.get(actor.id);
-      if (method === "GET") return Response.json(row ? [row] : []);
+      return Response.json(row ? [row] : []);
+    }
+    if (pathname === "/rest/v1/rpc/save_catalogue_workspace") {
+      if (method !== "POST" || capability !== writeKey) return denied();
       const body = await request.json();
-      if (body.owner_id && body.owner_id !== actor.id) return denied();
-      if (method === "POST" && row)
-        return Response.json({ code: "23505" }, { status: 409 });
-      if (method === "PATCH" && searchParams.get("revision") !== "eq." + row?.revision)
-        return Response.json([]);
-      if (!["POST", "PATCH"].includes(method)) return denied();
-      const next = { ...body, owner_id: actor.id };
-      rows.set(actor.id, next);
-      return Response.json([next], { status: method === "POST" ? 201 : 200 });
+      assert.deepEqual(Object.keys(body).sort(), ["expected_revision", "workspace_document"]);
+      if (!session.active) return denied();
+      const current = rows.get(actor.id);
+      if (body.expected_revision !== (current?.revision ?? null)) return Response.json(null);
+      const revision = randomUUID();
+      rows.set(actor.id, { revision, document: body.workspace_document, owner_id: actor.id });
+      return Response.json(revision);
     }
 
     const match = /^\/storage\/v1\/object\/(authenticated\/)?catalogue-media\/([^/]+)\/([0-9a-f]{64}\.jpg)$/.exec(pathname);
@@ -206,12 +212,14 @@ export async function createLocalFixture(t) {
   const bundle = new URL("../../dist/server/index.js", import.meta.url);
   await access(bundle).catch(() => { throw Error("Run npm run build before the browser suite."); });
   const { default: worker } = await import(bundle.href);
-  const supabase = fakeSupabase();
+  const writeKey = randomBytes(32).toString("hex");
+  const supabase = fakeSupabase(writeKey);
   const upstream = await serve(supabase.handle);
   t.after(() => upstream.close());
   const app = await serve((request) => worker.fetch(request, {
     SUPABASE_URL: upstream.origin,
     SUPABASE_PUBLISHABLE_KEY: publishableKey,
+    CATALOGUE_WORKSPACE_WRITE_KEY: writeKey,
   }));
   t.after(() => app.close());
   return {

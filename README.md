@@ -19,8 +19,9 @@ Before starting the app, start an unlinked local Supabase stack and provision a
 synthetic password user and one matching business profile in the local Studio.
 Follow the [local migration and provisioning guide](docs/supabase-staging.md).
 Set `SUPABASE_URL` to the loopback API origin and `SUPABASE_PUBLISHABLE_KEY` to
-that stack's publishable key in the ignored `.dev.vars` file. The Worker sends
-these credentials to the configured local stack. The browser uses same-origin
+that stack's publishable key in the ignored `.dev.vars` file. Configure the
+Worker-only `CATALOGUE_WORKSPACE_WRITE_KEY` and its database digest using the
+[local setup guide](docs/supabase-staging.md). The browser uses same-origin
 requests with HTTP-only session cookies. Public signup is disabled.
 
 Open `http://127.0.0.1:5173` and sign in using the provisioned account. Rebuild

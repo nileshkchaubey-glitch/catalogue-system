@@ -1,5 +1,5 @@
 import { handleAPI, valid } from "./worker.mjs";
-import { ownerProfile, supabaseClient, supabaseWorkspace } from "./supabase.mjs";
+import { ownerProfile, supabaseClient, supabaseWorkspace, validWorkspaceWriteKey } from "./supabase.mjs";
 
 const access = "catalogue_access";
 const refresh = "catalogue_refresh";
@@ -29,6 +29,13 @@ function rejected(result, headers) {
   return result.status === 403
     ? reply("This account has no provisioned owner profile.", 403, headers)
     : reply("Admin sign-in required.", 401, headers);
+}
+
+async function revokeSession(supabase, token) {
+  const response = await supabase("/auth/v1/logout?scope=local", { method: "POST", token });
+  if (response.ok) return true;
+  if ([401, 403].includes(response.status)) return false;
+  throw Error("Session revocation unavailable");
 }
 
 async function credentials(request) {
@@ -80,13 +87,11 @@ async function handleSession(request, url, supabase) {
   if (request.method === "DELETE") {
     const refreshToken = cookie(request, refresh);
     try {
-      let sessionToken = token;
-      if (!sessionToken && refreshToken)
-        sessionToken = (await requestToken(supabase, "refresh_token", { refresh_token: refreshToken })).session?.access_token;
-      if (sessionToken) {
-        const response = await supabase("/auth/v1/logout?scope=local", { method: "POST", token: sessionToken });
-        if (!response.ok && ![401, 403].includes(response.status))
-          return reply("Signed out here. The session could not be revoked upstream.", 503, sessionHeaders(url));
+      const revoked = token && await revokeSession(supabase, token);
+      if (!revoked && refreshToken) {
+        const { status, session } = await requestToken(supabase, "refresh_token", { refresh_token: refreshToken });
+        if (status === 429 || (session && !await revokeSession(supabase, session.access_token)))
+          throw Error("Session revocation unavailable");
       }
     } catch {
       return reply("Signed out here. The session could not be revoked upstream.", 503, sessionHeaders(url));
@@ -139,10 +144,14 @@ export async function handleProtectedAPI(request, env, fetchUpstream = fetch) {
     const token = cookie(request, access);
     const result = await ownerProfile(supabase, token);
     if (!result.profile) return rejected(result);
+    const workspaceSave = url.pathname === "/api/workspace" && request.method === "PUT";
+    const photoUpload = url.pathname === "/api/photos" && request.method === "POST";
     const expectedProfile = request.headers.get("X-Owner-Profile");
-    if (expectedProfile && expectedProfile !== result.profile.id)
+    if ((workspaceSave || photoUpload || expectedProfile !== null) && expectedProfile !== result.profile.id)
       return reply("The signed-in owner changed. Reload the workspace.", 403);
-    const response = await handleAPI(request, supabaseWorkspace(supabase, result, token, valid));
+    const workspaceWriteKey = workspaceSave ? env.CATALOGUE_WORKSPACE_WRITE_KEY : undefined;
+    if (workspaceSave && !validWorkspaceWriteKey(workspaceWriteKey)) throw Error("Missing workspace write configuration");
+    const response = await handleAPI(request, supabaseWorkspace(supabase, result, token, valid, workspaceWriteKey));
     // Private images and owner data must not survive logout or an account switch in HTTP caches.
     response.headers.set("Cache-Control", "no-store");
     return response;

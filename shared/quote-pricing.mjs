@@ -136,20 +136,20 @@ export function buildQuoteSnapshot(workspace, draft, confirmedAt) {
 
 export function validQuoteTransition(previous, next) {
   if (!validQuoteWorkspace(next)) return false;
-  const priorSnapshots = previous.quoteSnapshots ?? [];
-  const nextSnapshots = next.quoteSnapshots ?? [];
+  const { quoteSnapshots: priorSnapshots = [], quoteDrafts: priorDrafts = [], ...priorCatalogue } = previous;
+  const { quoteSnapshots: nextSnapshots = [], quoteDrafts: nextDrafts = [], ...nextCatalogue } = next;
   const added = nextSnapshots.length - priorSnapshots.length;
   if (added < 0 || added > 1 || !priorSnapshots.every((quote, index) => sameValue(quote, nextSnapshots[index]))) {
     return false;
   }
   if (!added) return true;
+  if (!sameValue(priorCatalogue, nextCatalogue)) return false;
   const snapshot = nextSnapshots.at(-1);
-  const draft = previous.quoteDrafts?.find((entry) => entry.id === snapshot.id);
-  const remainingDrafts = previous.quoteDrafts?.filter((entry) => entry.id !== snapshot.id);
-  if (!draft || !sameValue(remainingDrafts, next.quoteDrafts ?? [])) return false;
+  const draft = priorDrafts.find((entry) => entry.id === snapshot.id);
+  const remainingDrafts = priorDrafts.filter((entry) => entry.id !== snapshot.id);
+  if (!draft || !sameValue(remainingDrafts, nextDrafts)) return false;
   try {
-    return sameValue(snapshot, buildQuoteSnapshot(previous, draft, snapshot.confirmedAt)) &&
-      sameValue(snapshot, buildQuoteSnapshot(next, draft, snapshot.confirmedAt));
+    return sameValue(snapshot, buildQuoteSnapshot(previous, draft, snapshot.confirmedAt));
   } catch {
     return false;
   }

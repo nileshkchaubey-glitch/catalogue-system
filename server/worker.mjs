@@ -278,7 +278,9 @@ export async function handleAPI(request, bucket) {
   const previous = current ? upgrade(await current.json()) : upgrade({ products: [], customers: [] });
   if (!validQuoteTransition(previous, doc))
     return error("Refresh and review the saved quotation draft before confirming.", 422);
-  await persistPhotos(doc, bucket);
+  // Confirmation preserves the stored catalogue, including its existing media references.
+  if ((doc.quoteSnapshots?.length ?? 0) === (previous.quoteSnapshots?.length ?? 0))
+    await persistPhotos(doc, bucket);
   const result = await bucket.put(KEY, JSON.stringify(doc), {
     onlyIf:
       revision === "new"

@@ -47,8 +47,27 @@ Verification on the locked source: TypeScript and production build passed;
 An independent non-interactive remote Windows run passed four top-level
 browser/Worker/launcher tests but Chrome exited at startup (code 0), so its
 interactive workflow was not independently reproduced. Keep browser sandbox
-security enabled. The local SQL permission suite, real Auth/Storage checks,
-server-side validation boundary hardening, private export/media reconciliation,
-and deployment remain release gates. The current JSONB bridge allows an
-owner to bypass some Worker business rules via direct Data API writes.
-Do not connect real business records or cut over before resolving these gates.
+security enabled. At that revision, authenticated owners could bypass Worker
+validation through direct Data API workspace writes.
+
+## Worker write boundary checkpoint
+
+Starting from `2207195d6b8a75ae4b878831742e1735927bb2e8` on
+`feat/supabase-security-hardening`, migration `20261127000300` removes the raw
+active-workspace write grants. The Worker validates the document and saved
+quote transition, then uses an owner- and live-session-scoped CAS RPC with a
+Worker-only credential. Quote confirmation preserves existing catalogue data
+and rate history. The migration makes no changes to saved data.
+
+On Windows with Node 26.2.0, `npm run typecheck`, 24 regression tests,
+`npm run build`, and both packaged Worker tests passed using synthetic
+fixtures. The prior interactive Chromium result applies to the starting
+commit. This checkpoint ran the packaged API tests. The optional local
+workerd smoke test was blocked at process startup by Windows spawn EPERM.
+
+Real SQL, Data API, Auth and Storage checks remain pending. This environment
+had no Docker, Supabase CLI, PostgreSQL executables or listening local stack.
+The existing PostgreSQL directory contained only `data`, and WSL enumeration
+returned `E_ACCESSDENIED`. The rolled-back SQL fixture is ready for the next
+disposable stack run. Hosted URL approval, export and media backup and
+reconciliation, and any eventual cutover remain separate.

@@ -61,6 +61,7 @@ test("Packaged Worker authorizes synthetic owners, protects media, and rejects s
   const mobile = await loginRequest(app, owners.mobile);
   assert.equal(mobile.status, 200);
   const mobileHeaders = { Cookie: cookieHeader(mobile) };
+  const { profile: mobileProfile } = await mobile.json();
   const mobileWorkspace = await app.request("/api/workspace?owner_id=" + owners.desktop.id, { headers: mobileHeaders });
   assert.equal(mobileWorkspace.status, 200);
   assert.equal(mobileWorkspace.headers.get("X-Revision"), "new");
@@ -68,7 +69,7 @@ test("Packaged Worker authorizes synthetic owners, protects media, and rejects s
   assert.equal((await app.request(photoRoute, { headers: mobileHeaders })).status, 404);
   const upload = await app.request("/api/photos", {
     method: "POST",
-    headers: { ...mobileHeaders, Origin: app.origin, "Content-Type": "image/jpeg" },
+    headers: { ...mobileHeaders, Origin: app.origin, "Content-Type": "image/jpeg", "X-Owner-Profile": mobileProfile.id },
     body: photo,
   });
   assert.equal(upload.status, 200);
@@ -86,12 +87,15 @@ test("Packaged Worker authorizes synthetic owners, protects media, and rejects s
     collection: "Full catalog",
     consent: false,
   });
-  const update = () => app.request("/api/workspace", {
+  const update = (profileId = desktopProfile.profile.id) => app.request("/api/workspace", {
     method: "PUT",
-    headers: { ...desktopHeaders, Origin: app.origin, "Content-Type": "application/json", "X-Revision": revision },
+    headers: { ...desktopHeaders, Origin: app.origin, "Content-Type": "application/json", "X-Revision": revision,
+      "X-Owner-Profile": profileId },
     body: JSON.stringify(document),
   });
-  assert.equal((await update()).status, 200);
+  assert.equal((await update(mobileProfile.id)).status, 403);
+  const concurrent = await Promise.all([update(), update()]);
+  assert.deepEqual(concurrent.map(({ status }) => status).sort(), [200, 409]);
   assert.equal((await update()).status, 409);
   assert.deepEqual(app.rows.get(owners.desktop.id).document.customers, document.customers);
   assert.equal(app.rows.has(owners.mobile.id), false);
@@ -101,7 +105,12 @@ test("Packaged Worker authorizes synthetic owners, protects media, and rejects s
   });
   assert.equal(signOut.status, 204);
   assert.ok(signOut.headers.getSetCookie().every((cookie) => cookie.includes("Max-Age=0")));
-  assert.equal((await app.request("/api/workspace", { headers: desktopHeaders })).status, 401);
+  assert.equal((await app.request("/api/workspace", { headers: desktopHeaders })).status, 403);
+  assert.equal((await update()).status, 403);
+  const refreshCookie = desktopHeaders.Cookie.split("; ").find((value) => value.startsWith("catalogue_refresh="));
+  assert.equal((await app.request("/api/session", { headers: { Cookie: refreshCookie } })).status, 401);
+  assert.ok(app.audit.some(({ pathname, method }) => pathname === "/rest/v1/rpc/save_catalogue_workspace" && method === "POST"));
+  assert.ok(app.audit.filter(({ pathname }) => pathname === "/rest/v1/catalogue_workspaces").every(({ method }) => method === "GET"));
 });
 
 test("Packaged Worker rotates an expired session and preserves confirmed quotations", { timeout: 15000 }, async (t) => {
@@ -142,8 +151,13 @@ test("Packaged Worker rotates an expired session and preserves confirmed quotati
 
   const savedDraft = await save({ ...first, customers: [customer], quoteDrafts: [draft] });
   const snapshot = buildQuoteSnapshot(savedDraft, draft, "2026-11-27T00:00:00.000Z");
-  const confirmed = await save({ ...savedDraft, quoteDrafts: [], quoteSnapshots: [snapshot] });
+  const confirmation = { ...savedDraft, quoteDrafts: [], quoteSnapshots: [snapshot] };
+  const mixedSave = structuredClone(confirmation);
+  mixedSave.families[0].variants[0].history = [];
+  await save(mixedSave, 422);
+  const confirmed = await save(confirmation);
   assert.equal(confirmed.families[0].variants[0].rate, "10.00");
+  assert.deepEqual(confirmed.families[0].variants[0].history, variant.history);
   assert.equal(confirmed.quoteSnapshots[0].total, "24.09");
   assert.equal(Object.hasOwn(confirmed.quoteSnapshots[0].lines[0], "purchase"), false);
   await save({ ...confirmed, quoteSnapshots: [] }, 422);
