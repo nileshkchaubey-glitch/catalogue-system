@@ -20,7 +20,7 @@ jobs:
     if: >-
       github.repository == 'nileshkchaubey-glitch/catalogue-system' &&
       toJSON(github.event.repository.private) == 'false' &&
-      github.event.before == 'bf60610297e1e5d4d95b0096c382078343008eb0' &&
+      github.event.before == 'a5e8ea019dba4e181429f3dd646866fbfdb35436' &&
       !github.event.created && !github.event.deleted && !github.event.forced &&
       github.run_attempt == 1
     runs-on: ubuntu-24.04
@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          fetch-depth: 7
+          fetch-depth: 12
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -38,12 +38,14 @@ jobs:
         run: |
           set -euo pipefail
           original=06fd541b2eab42ecda9b6f7744c8f53a27db2327
-          previous=bf60610297e1e5d4d95b0096c382078343008eb0
-          candidate=67d2dbdf1b73b2309d0f1e6a36b7e652968f6482
+          previous=a5e8ea019dba4e181429f3dd646866fbfdb35436
+          reviewed=dbe9401f8d65c1a43485d9bd0ad2b887e0cf0f6b
+          candidate=f3df0e8a5d1e85dc9f2d254937097aff198b9982
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           git merge-base --is-ancestor "$original" "$previous"
-          git merge-base --is-ancestor "$previous" "$candidate"
-          git merge-base --is-ancestor "$candidate" HEAD
+          test "$(git rev-list --parents -n 1 "$reviewed")" = "$reviewed $previous"
+          test "$(git rev-list --parents -n 1 "$candidate")" = "$candidate $reviewed"
+          test "$(git rev-list --parents -n 1 HEAD)" = "$GITHUB_SHA $candidate"
           # Preserve the original database inputs except for the exact reviewed SQL patch.
           git diff --quiet "$original" "$candidate" -- supabase/ tests/integration/legacy-foundation.sql \
             ':(exclude,top,literal)supabase/migrations/20261127000300_catalogue_worker_write_boundary.sql'
@@ -78,12 +80,12 @@ jobs:
           mkdir -p "$gate/supabase"
           sed 's/^project_id = .*/project_id = "catalogue-api-gate-disposable"/' \
             supabase/config.toml > "$gate/supabase/config.toml"
-          docker info > /dev/null
           node tests/integration/supabase-api.mjs prepare-runtime
           if ! supabase --workdir "$gate" start \
             --exclude studio,pgmeta,edge-runtime,realtime,imgproxy,logflare,vector,supavisor > "$gate/start.log" 2>&1; then
-            printf '%s\n' 'Supabase startup failed. Container states follow.'
-            docker ps -a --format '{{.Names}} {{.Status}}'
+            printf '%s\n' 'Supabase startup failed. Labeled container states follow.'
+            docker ps -a --filter 'label=com.supabase.cli.project=catalogue-api-gate-disposable' \
+              --format '{{.State}}' 2>/dev/null
             exit 1
           fi
           printf '%s\n' 'Disposable Docker stack started.'
