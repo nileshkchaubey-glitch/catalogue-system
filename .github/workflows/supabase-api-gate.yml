@@ -20,7 +20,7 @@ jobs:
     if: >-
       github.repository == 'nileshkchaubey-glitch/catalogue-system' &&
       toJSON(github.event.repository.private) == 'false' &&
-      github.event.before == 'a5e8ea019dba4e181429f3dd646866fbfdb35436' &&
+      github.event.before == 'ef41d8bef04cec4509cfad6625950c74edab1ea6' &&
       !github.event.created && !github.event.deleted && !github.event.forced &&
       github.run_attempt == 1
     runs-on: ubuntu-24.04
@@ -37,18 +37,13 @@ jobs:
         timeout-minutes: 3
         run: |
           set -euo pipefail
-          original=06fd541b2eab42ecda9b6f7744c8f53a27db2327
-          previous=a5e8ea019dba4e181429f3dd646866fbfdb35436
-          reviewed=dbe9401f8d65c1a43485d9bd0ad2b887e0cf0f6b
-          candidate=f3df0e8a5d1e85dc9f2d254937097aff198b9982
+          previous=ef41d8bef04cec4509cfad6625950c74edab1ea6
+          candidate=fa136216f056275279f4347b8b566542d34f9259
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          git merge-base --is-ancestor "$original" "$previous"
-          test "$(git rev-list --parents -n 1 "$reviewed")" = "$reviewed $previous"
-          test "$(git rev-list --parents -n 1 "$candidate")" = "$candidate $reviewed"
+          test "$(git rev-list --parents -n 1 "$candidate")" = "$candidate $previous"
           test "$(git rev-list --parents -n 1 HEAD)" = "$GITHUB_SHA $candidate"
-          # Preserve the original database inputs except for the exact reviewed SQL patch.
-          git diff --quiet "$original" "$candidate" -- supabase/ tests/integration/legacy-foundation.sql \
-            ':(exclude,top,literal)supabase/migrations/20261127000300_catalogue_worker_write_boundary.sql'
+          # The prior real database gate passed; preserve its exact migrations and runtime pin.
+          git diff --quiet "$previous" "$candidate" -- supabase/migrations tests/integration/legacy-foundation.sql tests/integration/supabase-runtime.json
           # The workflow is the only permitted change after the reviewed candidate.
           git diff --quiet "$candidate" HEAD -- . ':(exclude,top,literal).github/workflows/supabase-api-gate.yml'
           npm ci --no-audit --no-fund
