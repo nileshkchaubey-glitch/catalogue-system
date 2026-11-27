@@ -278,8 +278,15 @@ async function browserSmoke(origin, userA, userB, winningCustomer) {
           if (seesOwnerA) await visible(page, visibleText(winningCustomer), "persisted owner's customer");
           else check(!await page.visible(visibleText(winningCustomer)), "The other owner's customer was visible.");
           await page.click(button("Sign out"));
-          await visible(page, heading("Admin sign in"), "signed-out workspace");
-          check(await page.evaluate('fetch("/api/workspace").then(r => r.status)') === 401, "Signed-out browser retained workspace access.");
+          // The heading appears while DELETE /api/session is still in flight.
+          // The form is rendered only after SessionBoundary finishes sign-out.
+          await visible(page, button("Sign in"), "completed sign-out");
+          check(!await page.visible('document.querySelector("[role=alert]")'), "Browser sign-out reported an error.");
+          const signedOutStatus = await page.evaluate('fetch("/api/workspace", { cache: "no-store" }).then(r => r.status)');
+          check(signedOutStatus === 401, "Signed-out browser workspace expected HTTP 401, got " + signedOutStatus + ".");
+          await page.navigate();
+          await visible(page, button("Sign in"), "signed-out session persists on reload");
+          check(await page.evaluate('fetch("/api/workspace", { cache: "no-store" }).then(r => r.status)') === 401, "Reloaded signed-out browser retained workspace access.");
           check(page.errors.length === 0 && page.outside.length === 0, "Browser reported an error or an unexpected external request.");
         } finally {
           await page.close();

@@ -222,7 +222,7 @@ async function addCustomer(page, name) {
 }
 
 test("Chromium desktop and mobile owner workflows with synthetic Supabase", { timeout: 40000 }, async (t) => {
-  const app = await createLocalFixture(t);
+  const app = await createLocalFixture(t, { logoutDelayMs: 750 });
   const browser = await launchChromium();
   t.after(() => browser.close());
   t.diagnostic(browser.version);
@@ -257,8 +257,14 @@ test("Chromium desktop and mobile owner workflows with synthetic Supabase", { ti
       }
       assert.equal(await page.evaluate('document.cookie.includes("catalogue_")'), false);
       await page.click(button("Sign out"));
-      await expectVisible(page, heading("Admin sign in"), "logout returns to sign-in");
-      assert.equal(await page.evaluate('fetch("/api/workspace").then(r => r.status)'), 401);
+      await expectVisible(page, heading("Admin sign in"), "logout hides workspace immediately");
+      assert.equal(await page.visible(button("Sign in")), false, "Sign-in form appeared while delayed sign-out was pending");
+      await expectVisible(page, button("Sign in"), "logout returns to completed sign-in");
+      assert.equal(await page.visible('document.querySelector("[role=alert]")'), false);
+      assert.equal(await page.evaluate('fetch("/api/workspace", { cache: "no-store" }).then(r => r.status)'), 401);
+      await page.navigate();
+      await expectVisible(page, button("Sign in"), "signed-out session persists on reload");
+      assert.equal(await page.evaluate('fetch("/api/workspace", { cache: "no-store" }).then(r => r.status)'), 401);
       assert.deepEqual(page.outside, []);
       assert.deepEqual(page.errors, []);
     });

@@ -91,7 +91,7 @@ async function serve(handle) {
   };
 }
 
-function fakeSupabase(writeKey) {
+function fakeSupabase(writeKey, logoutDelayMs = 0) {
   const audit = [];
   const profiles = new Map([
     [owners.desktop.id, {
@@ -159,6 +159,7 @@ function fakeSupabase(writeKey) {
       return Response.json({ id: actor.id, email: actor.email, is_anonymous: false, role: "authenticated" });
     if (pathname === "/auth/v1/logout" && method === "POST") {
       if (!session.active) return unauthenticated();
+      if (logoutDelayMs) await new Promise(resolve => setTimeout(resolve, logoutDelayMs));
       session.active = false;
       return new Response(null, { status: 204 });
     }
@@ -208,12 +209,12 @@ function fakeSupabase(writeKey) {
   return { handle, audit, rows };
 }
 
-export async function createLocalFixture(t) {
+export async function createLocalFixture(t, { logoutDelayMs = 0 } = {}) {
   const bundle = new URL("../../dist/server/index.js", import.meta.url);
   await access(bundle).catch(() => { throw Error("Run npm run build before the browser suite."); });
   const { default: worker } = await import(bundle.href);
   const writeKey = randomBytes(32).toString("hex");
-  const supabase = fakeSupabase(writeKey);
+  const supabase = fakeSupabase(writeKey, logoutDelayMs);
   const upstream = await serve(supabase.handle);
   t.after(() => upstream.close());
   const app = await serve((request) => worker.fetch(request, {
