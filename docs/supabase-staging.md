@@ -178,3 +178,25 @@ matching bytes and digest. Test restoration in a disposable workspace. Retain
 R2 and the previous app revision until the real API and owner release gates
 pass. No activation or overwrite of the existing workspace is performed by
 this utility.
+
+## Standalone disposable acceptance
+
+Use a dedicated, isolated Linux amd64 host (no production services, no linked
+Supabase project, no external access to test ports), with the exact pinned
+CLI, local Unix Docker socket, installed dependencies and the already-built
+candidate. The read-only prerequisite check does not pull an image or start
+a stack:
+
+    node scripts/run-supabase-acceptance.mjs --check
+
+The explicit execution command uses the existing integration test stages in
+one pass. It refuses an existing labeled disposable project, creates a fresh
+temporary unlinked configuration, verifies the pinned runtime, rehearses the
+legacy reconciliation, applies migrations, runs real API/browser acceptance,
+and checks labeled resource cleanup. No production export, credentials or
+hosted database is required. The runner is not a CI trigger.
+
+    node scripts/run-supabase-acceptance.mjs --execute-isolated
+
+A failed check is not a successful test. Do not use a shared Docker host or
+another project's stack. If cleanup fails, keep the isolated host for recovery.
