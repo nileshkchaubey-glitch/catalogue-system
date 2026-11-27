@@ -147,3 +147,34 @@ reconciliation evidence. The byte-for-byte backup and its hash allow a local
 restage from the same source revision. Any eventual activation or rollback
 needs its own reviewed procedure and rehearsal with verified R2 exports, media
 backups and the prior application revision.
+
+## Offline workspace and media backup gate
+
+Use the offline backup utility after obtaining an authorized, revision-pinned
+private R2 export of the workspace and every referenced JPEG object. Keep the
+export and media outside the repository, on an owner-controlled filesystem
+with appropriate access permissions. The media input folder contains the
+original R2 object bytes named by their 64-character lowercase digest, without
+an extension. The utility does not access R2, Supabase, or the network.
+
+    node scripts/verify-migration-backup.mjs create <export.json> <source-revision> <media-dir>
+    node scripts/verify-migration-backup.mjs verify <bundle-dir> <manifest-sha256>
+
+The tool creates a unique bundle under ignored backups/, preserves exact
+workspace bytes, copies every distinct referenced photo and verifies its
+content-addressed SHA-256. A manifest is written last; separately record its
+SHA-256 in a trusted private location. Re-verify after copying the bundle to an
+independent owner-controlled backup location. A missing, corrupt, inline or
+unexpected media object within the completed bundle prevents verified acceptance. The JPEG magic-byte
+check is not a full image decoder. Inline images must first be materialized in
+an isolated copy without changing the original export. Keep any incomplete
+bundle private, do not treat it as a valid backup, and preserve the source.
+
+This verifies a local backup bundle only. It does not prove a live export
+was captured consistently or that Supabase has received it. Before any cutover,
+compare the source revision again, reconcile all workspace fields and stable
+IDs, verify taxonomy order, and read back every copied media object with
+matching bytes and digest. Test restoration in a disposable workspace. Retain
+R2 and the previous app revision until the real API and owner release gates
+pass. No activation or overwrite of the existing workspace is performed by
+this utility.
