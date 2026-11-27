@@ -20,7 +20,7 @@ jobs:
     if: >-
       github.repository == 'nileshkchaubey-glitch/catalogue-system' &&
       toJSON(github.event.repository.private) == 'false' &&
-      github.event.before == 'ef41d8bef04cec4509cfad6625950c74edab1ea6' &&
+      github.event.before == 'dfdde8ac307ac09038950972c63e45efe568e234' &&
       !github.event.created && !github.event.deleted && !github.event.forced &&
       github.run_attempt == 1
     runs-on: ubuntu-24.04
@@ -37,8 +37,8 @@ jobs:
         timeout-minutes: 3
         run: |
           set -euo pipefail
-          previous=ef41d8bef04cec4509cfad6625950c74edab1ea6
-          candidate=fa136216f056275279f4347b8b566542d34f9259
+          previous=dfdde8ac307ac09038950972c63e45efe568e234
+          candidate=a5a4efe448b52184126a185571311c49ec562c73
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test "$(git rev-list --parents -n 1 "$candidate")" = "$candidate $previous"
           test "$(git rev-list --parents -n 1 HEAD)" = "$GITHUB_SHA $candidate"
