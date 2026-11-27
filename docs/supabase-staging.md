@@ -42,6 +42,29 @@ matches. Before considering a hosted application, review the live profile
 schema, grants, policies and bucket contract independently. The media migration
 aborts if the named bucket's existing privacy, size or type settings differ.
 
+### Preflight for an existing foundation
+
+Before a hosted migration review, inventory the recorded migration versions,
+existing profile constraints, grants, and policies on public.business_profiles
+and storage.objects. Record each policy's name, command, roles, permissive or
+restrictive mode, USING expression, and WITH CHECK expression. Inspect the
+catalogue-media bucket separately for its name, privacy, limit and MIME types.
+Compare the inventory with the versioned foundation before approving an apply.
+
+The first migration replaces three pre-versioned catalogue_profiles policies
+and four catalogue_media policies by name in the same transaction that defines
+their replacements. The migration retains existing profile rows and constraints
+and leaves unrelated policy names in place. An incompatible media bucket aborts
+the migration. Run the migration tool in a transaction so an error restores the
+prior rules and settings. Check migration history first. If the foundation
+version is already recorded, the tool skips it.
+
+The one-time GitHub Actions gate uses an unlinked Docker stack with all seven
+policy names pre-created from a synthetic fixture. It tests rollback on an
+incompatible bucket, applies the tracked migrations, and exercises the packaged
+Worker through local Auth, PostgREST and Storage. The workflow uses a standard
+public Ubuntu runner and publishes test results to the run log.
+
 ### Local Worker write credential
 
 Generate 32 random bytes offline and encode them as 64 lowercase hex characters.

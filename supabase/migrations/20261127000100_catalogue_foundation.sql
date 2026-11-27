@@ -18,6 +18,12 @@ alter table public.business_profiles enable row level security;
 revoke all on public.business_profiles from public, anon, authenticated;
 grant select on public.business_profiles to authenticated;
 
+-- The pre-versioned foundation already used these names. Replace them in this
+-- migration transaction so the old guards and new definitions switch together.
+drop policy if exists catalogue_profiles_read on public.business_profiles;
+drop policy if exists catalogue_profiles_guard on public.business_profiles;
+drop policy if exists catalogue_profiles_no_client_delete on public.business_profiles;
+
 create policy catalogue_profiles_read on public.business_profiles
   for select to authenticated using (owner_id = (select auth.uid()));
 create policy catalogue_profiles_guard on public.business_profiles
@@ -65,6 +71,11 @@ $$;
 
 -- Restrictive policies protect this bucket even when an existing permissive
 -- policy also matches. Other buckets retain their existing policy behavior.
+drop policy if exists catalogue_media_no_anon on storage.objects;
+drop policy if exists catalogue_media_owner_guard on storage.objects;
+drop policy if exists catalogue_media_read on storage.objects;
+drop policy if exists catalogue_media_insert on storage.objects;
+
 create policy catalogue_media_no_anon on storage.objects
   as restrictive for all to anon
   using (bucket_id <> 'catalogue-media') with check (bucket_id <> 'catalogue-media');
