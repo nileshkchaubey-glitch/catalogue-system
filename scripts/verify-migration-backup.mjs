@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { lstat, mkdir, open, readFile, readdir } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { lstat, mkdir, open, readFile, readdir, realpath } from "node:fs/promises";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { valid } from "../server/worker.mjs";
 
@@ -134,6 +134,39 @@ export async function createBundle({ sourcePath, sourceRevision, mediaDirectory,
   return { bundleDirectory, ...verified };
 }
 
+function inside(parent, child) {
+  const rel = relative(parent, child);
+  return rel === "" || (!isAbsolute(rel) && rel !== ".." && !rel.startsWith(".." + sep));
+}
+
+// This is an offline byte-restoration rehearsal, not activation of a database.
+// Require an independently chosen existing private directory. Never overwrite
+// the source or a previous restoration, even when a second copy is requested.
+export async function restoreBundle({ bundleDirectory, expectedManifestSha256, destinationDirectory }) {
+  await directory(bundleDirectory);
+  await directory(destinationDirectory);
+  const source = await realpath(bundleDirectory);
+  const destination = await realpath(destinationDirectory);
+  requireCheck(!inside(source, destination) && !inside(destination, source),
+    "Choose a recovery directory separate from the source bundle and its ancestors.");
+  const original = await verifyBundle({ bundleDirectory: source, expectedManifestSha256 });
+  const recovered = await createBundle({
+    sourcePath: join(source, "workspace.json"),
+    sourceRevision: original.sourceRevision,
+    mediaDirectory: join(source, "media"),
+    backupDirectory: destination,
+  });
+  requireCheck(recovered.manifestSha256 === expectedManifestSha256,
+    "Restored bytes or manifest differ from the independently recorded digest.");
+  const checked = await verifyBundle({ bundleDirectory: recovered.bundleDirectory, expectedManifestSha256 });
+  await verifyBundle({ bundleDirectory: source, expectedManifestSha256 });
+  requireCheck(checked.workspaceSha256 === original.workspaceSha256 &&
+    checked.mediaReferences === original.mediaReferences &&
+    checked.uniquePhotos === original.uniquePhotos,
+    "Restoration reconciliation failed.");
+  return { ...recovered, restored: true, sourceUnchanged: true };
+}
+
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
   try {
     const [mode, first, second, third] = process.argv.slice(2);
@@ -142,8 +175,10 @@ if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) 
       result = await createBundle({ sourcePath: first, sourceRevision: second, mediaDirectory: third });
     } else if (mode === "verify" && process.argv.length === 5) {
       result = await verifyBundle({ bundleDirectory: first, expectedManifestSha256: second });
+    } else if (mode === "restore" && process.argv.length === 6) {
+      result = await restoreBundle({ bundleDirectory: first, expectedManifestSha256: second, destinationDirectory: third });
     } else {
-      throw Error("Usage: create <export.json> <source-revision> <media-dir> | verify <bundle-dir> <manifest-sha256>.");
+      throw Error("Usage: create <export.json> <source-revision> <media-dir> | verify <bundle-dir> <manifest-sha256> | restore <bundle-dir> <manifest-sha256> <private-recovery-dir>.");
     }
     console.log(JSON.stringify(result, null, 2));
   } catch {

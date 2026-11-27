@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createBundle, verifyBundle } from "../scripts/verify-migration-backup.mjs";
+import { createBundle, restoreBundle, verifyBundle } from "../scripts/verify-migration-backup.mjs";
 
 const jpeg = Buffer.from([255, 216, 255, 217]);
 const hash = createHash("sha256").update(jpeg).digest("hex");
@@ -76,4 +76,38 @@ test("backup verification detects changed media, workspace and untrusted manifes
   await assert.rejects(verifyBundle({ ...args, expectedManifestSha256: "0".repeat(64) }), /Manifest digest/);
   await writeFile(join(result.bundleDirectory, "media", "unexpected"), jpeg);
   await assert.rejects(verifyBundle(args), /unexpected media/);
+});
+
+test("offline recovery restores all bytes and the manifest without touching the original bundle", async (context) => {
+  const input = await fixture(context);
+  const original = await createBundle(input);
+  const destinationDirectory = join(input.backupDirectory, "..", "independent-recovery");
+  await mkdir(destinationDirectory);
+  const args = { ...options(original), destinationDirectory };
+  const restored = await restoreBundle(args);
+  assert.equal(restored.restored, true);
+  assert.equal(restored.sourceUnchanged, true);
+  assert.equal(restored.manifestSha256, original.manifestSha256);
+  assert.equal(restored.workspaceSha256, original.workspaceSha256);
+  for (const file of ["workspace.json", "manifest.json", join("media", hash)]) {
+    assert.deepEqual(await readFile(join(restored.bundleDirectory, file)), await readFile(join(original.bundleDirectory, file)));
+  }
+  const repeated = await restoreBundle(args);
+  assert.notEqual(repeated.bundleDirectory, restored.bundleDirectory);
+  assert.equal((await verifyBundle(options(original))).verified, true);
+  assert.equal((await verifyBundle(options(restored))).verified, true);
+});
+
+test("offline recovery refuses untrusted hashes, overlapping locations and corrupt source bytes", async (context) => {
+  const input = await fixture(context);
+  const original = await createBundle(input);
+  const destinationDirectory = join(input.backupDirectory, "..", "recovery");
+  await mkdir(destinationDirectory);
+  const args = { ...options(original), destinationDirectory };
+  await assert.rejects(restoreBundle({ ...args, expectedManifestSha256: "0".repeat(64) }), /Manifest digest/);
+  await assert.rejects(restoreBundle({ ...args, destinationDirectory: original.bundleDirectory }), /separate/);
+  await assert.rejects(restoreBundle({ ...args, destinationDirectory: input.backupDirectory }), /separate/);
+  await assert.rejects(restoreBundle({ ...args, destinationDirectory: join(original.bundleDirectory, "media") }), /separate/);
+  await writeFile(join(original.bundleDirectory, "media", hash), Buffer.from([255, 216, 1, 217]));
+  await assert.rejects(restoreBundle(args), /digest/);
 });

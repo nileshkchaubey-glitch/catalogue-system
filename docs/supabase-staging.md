@@ -159,6 +159,16 @@ an extension. The utility does not access R2, Supabase, or the network.
 
     node scripts/verify-migration-backup.mjs create <export.json> <source-revision> <media-dir>
     node scripts/verify-migration-backup.mjs verify <bundle-dir> <manifest-sha256>
+    node scripts/verify-migration-backup.mjs restore <bundle-dir> <manifest-sha256> <private-recovery-dir>
+
+The restore command requires an existing, separate owner-controlled directory.
+It verifies the original against the independently recorded digest, recreates
+a new unique bundle from the saved bytes, compares its manifest to that digest,
+and re-verifies both copies. It refuses overlapping source/destination paths,
+corruption, and untrusted manifest hashes. A second disk or independent private
+storage location must be selected by the owner; directory separation alone is
+not physical backup independence. The operation proves offline byte recovery,
+not activation of a database or successful restoration of live customer data.
 
 The tool creates a unique bundle under ignored backups/, preserves exact
 workspace bytes, copies every distinct referenced photo and verifies its
