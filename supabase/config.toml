@@ -26,7 +26,9 @@ enable_anonymous_sign_ins = false
 enable_refresh_token_rotation = true
 
 [auth.email]
-enable_signup = false
+# The local CLI uses this switch for the email login provider.
+# The global auth.enable_signup setting still blocks public signup.
+enable_signup = true
 
 [auth.sms]
 enable_signup = false

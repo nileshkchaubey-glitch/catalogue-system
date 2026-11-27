@@ -338,12 +338,20 @@ async function integrate(settings) {
     let alice, bob;
     let profileA, profileB;
     let third;
+    await step("public email signup is denied without creating an account", async () => {
+      const email = "catalogue-signup-test@example.com";
+      expectStatus(await api("/auth/v1/signup", jsonRequest("POST", {
+        email, password: randomBytes(24).toString("base64url"),
+      })), 422);
+      check(query("select not exists (select 1 from auth.users where email = '" + email + "')") === "t",
+        "A rejected public signup created an Auth user.");
+    });
     await step("real sign-in, refresh rotation, and anonymous/unprovisioned denial", async () => {
       expectStatus(await app("/api/workspace"), 401);
       expectStatus(await api(workspacePath), [401, 403]);
       expectStatus(await login({ ...userA, password: randomBytes(24).toString("base64url") }), 401);
       const rejected = await login(unprovisioned);
-      expectStatus(rejected, 403);
+      check(rejected.status === 403, "Unprovisioned email login expected HTTP 403, got " + rejected.status + ".");
       check(rejected.headers.getSetCookie().length === 0, "The unprovisioned Worker login issued cookies.");
       const thirdLogin = await api("/auth/v1/token?grant_type=password", jsonRequest("POST", {
         email: unprovisioned.email, password: unprovisioned.password,
