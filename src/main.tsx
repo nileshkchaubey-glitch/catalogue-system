@@ -43,6 +43,7 @@ import type { OwnerProfile } from "./session";
 import { QuotationForm } from "./quotations";
 import { BulkPricingForm } from "./bulk-pricing";
 import { CatalogueExcelDialog } from "./catalogue-excel-dialog";
+import { FastEntryForm } from "./features/product-entry/FastEntryForm";
 import "./style.css";
 type Modal =
   | { kind: "product"; family?: Family }
@@ -52,7 +53,8 @@ type Modal =
   | { kind: "rate"; p: Product }
   | { kind: "draft"; customerId: string }
   | { kind: "bulk"; variantIds: string[] }
-  | { kind: "excel" };
+  | { kind: "excel" }
+  | { kind: "fast-entry" };
 const navigation = [
   { name: "Products", Icon: LibraryBig },
   { name: "Rates", Icon: Tags },
@@ -346,6 +348,9 @@ function App({ profile, signOut, checkSession }: {
               <button className="secondary" disabled={!revision} onClick={() => open({ kind: "excel" })}>
                 <Sheet size={17} aria-hidden /> Catalogue Excel
               </button>
+            )}
+            {tab === "Products" && (
+              <button className="secondary" disabled={!revision} onClick={() => open({ kind: "fast-entry" })}>Fast Entry</button>
             )}
             {tab === "Rates" ? (
               <button
@@ -676,7 +681,7 @@ function App({ profile, signOut, checkSession }: {
                         ? "Bulk markup"
                         : modal.kind === "excel"
                           ? "Catalogue Excel"
-                          : "Customer quotation"
+                          : modal.kind === "fast-entry" ? "Fast Product Entry" : "Customer quotation"
           }
           close={() => void closeDialog()}
         >
@@ -817,6 +822,13 @@ function App({ profile, signOut, checkSession }: {
           )}
           {modal.kind === "bulk" && (
             <BulkPricingForm workspace={data} variantIds={modal.variantIds} save={save} close={() => D(null)} />
+          )}
+          {modal.kind === "fast-entry" && (
+            <FastEntryForm formRef={productForm} workspace={data} profileId={profile.id}
+              initialCategory={scope === "category" && productDepartment(filter) ? filter :
+                (scope === "department" && departments[filter]?.[0]) || departments[orderedDepartments[0]]?.[0] || ""}
+              initialCollection={scope === "collection" && data.collections.includes(filter) ? filter : undefined}
+              onSave={save} close={() => D(null)} />
           )}
           {modal.kind === "excel" && (
             <CatalogueExcelDialog workspace={data} save={save} close={() => D(null)} />

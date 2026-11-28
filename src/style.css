@@ -1205,3 +1205,9 @@ p[role="alert"] {
     min-height: 44px;
   }
 }
+
+.fast-entry-grid { display:grid; gap:12px; margin:12px 0; }
+.fast-entry-row { display:grid; grid-template-columns:1.3fr 1fr 1fr 1fr auto; gap:8px; align-items:end; }
+.fast-entry-row label { min-width:0; }
+.fast-entry-row input,.fast-entry-row select { width:100%; min-width:0; }
+@media(max-width:650px){.fast-entry-row{grid-template-columns:1fr 1fr; border-bottom:1px solid #dce2df; padding-bottom:12px;} .fast-entry-row button{grid-column:1/-1; justify-self:end;}}
