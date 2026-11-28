@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createBundle, restoreBundle } from "../../scripts/verify-migration-backup.mjs";
+import { stageVerifiedBundle } from "../../scripts/stage-workspace.mjs";
 import { join } from "node:path";
 import { Miniflare, Log, LogLevel } from "miniflare";
 import { launchChromium, waitFor } from "../browser/chromium.mjs";
@@ -436,22 +439,24 @@ async function integrate(settings) {
       await expectStorageDenied(await api(objectPath, { token: bob.token }));
       await expectStorageDenied(await api(objectPath, { token: third }));
       await expectStorageDenied(await api(objectPath));
-      // Run SQL metadata mutation checks inside a transaction on the disposable
-      // fixture only, under the actual owner's authenticated session.
-      const claims = JSON.parse(Buffer.from(alice.token.split(".")[1], "base64url").toString("utf8"));
-      const sessionId = claims.session_id;
-      check(revisionPattern.test(sessionId), "Expected real Auth session ID.");
-      const safeClaims = JSON.stringify({ sub: userA.id, role: "authenticated", is_anonymous: false, session_id: sessionId });
-      const metadataPath = userA.id + "/" + digest + ".jpg";
-      const result = db("set local role authenticated;\n" +
-        "select set_config('request.jwt.claims', '" + safeClaims + "', true);\n" +
-        "with changed as (update storage.objects set name = name where bucket_id = 'catalogue-media' and name = '" + metadataPath + "' returning 1) select count(*) from changed;\n" +
-        "with removed as (delete from storage.objects where bucket_id = 'catalogue-media' and name = '" + metadataPath + "' returning 1) select count(*) from removed;\n", true);
-      check(result.status === 0 && result.stdout.trim().split(/\r?\n/).slice(-2).join(",") === "0,0",
-        "An authenticated owner could alter or remove content-addressed media metadata.");
-      const preserved = await api(objectPath, { token: alice.token });
-      expectStatus(preserved, 200);
-      assert.deepEqual(Buffer.from(await preserved.arrayBuffer()), photo);
+      // Use the actual Storage API, not direct metadata mutations. Recent
+      // Storage versions reject direct SQL DELETE with a statement trigger
+      // even when RLS matches zero rows. Verify the owner cannot mutate the
+      // synthetic object through supported HTTP operations and its bytes stay exact.
+      const mutationPath = "/storage/v1/object/catalogue-media/" + userA.id + "/" + digest + ".jpg";
+      const replacement = Buffer.concat([photo, Buffer.from([0])]);
+      for (const [label, options] of [
+        ["replace", { method: "PUT", headers: { "Content-Type": "image/jpeg" }, body: replacement }],
+        ["upsert", { method: "POST", headers: { "Content-Type": "image/jpeg", "x-upsert": "true" }, body: replacement }],
+        ["delete", { method: "DELETE" }],
+      ]) {
+        const denied = await api(mutationPath, { ...options, token: alice.token });
+        console.log("Storage " + label + " HTTP " + denied.status);
+        await expectStorageDenied(denied);
+        const preserved = await api(objectPath, { token: alice.token });
+        expectStatus(preserved, 200);
+        assert.deepEqual(Buffer.from(await preserved.arrayBuffer()), photo);
+      }
       console.log("JPEG bytes " + photo.length + ", SHA-256 " + digest);
     });
 
@@ -568,6 +573,63 @@ async function integrate(settings) {
       expectStatus(await rpc(current, revision, alice.token, writeKey), 403);
       await expectStorageDenied(await api("/storage/v1/object/authenticated/catalogue-media/" + userA.id + "/" + digest + ".jpg", { token: alice.token }));
       expectStatus(await read(bob), 200);
+    });
+
+    await step("verified bundle recovery, real media staging and archive reconciliation without activation", async () => {
+      const dir = await mkdtemp(join(process.env.RUNNER_TEMP, "catalogue-synthetic-rehearsal-"));
+      try {
+        const sourcePath = join(dir, "workspace.json");
+        const mediaDirectory = join(dir, "source-media");
+        const recoveryDirectory = join(dir, "recovery");
+        await mkdir(mediaDirectory);
+        await mkdir(recoveryDirectory);
+        const doc = fixture(photoRoute);
+        await writeFile(sourcePath, JSON.stringify(doc, null, 2) + "\n");
+        await writeFile(join(mediaDirectory, digest), photo);
+        const bundle = await createBundle({
+          sourcePath, sourceRevision: "synthetic-rehearsal-1", mediaDirectory,
+          backupDirectory: join(dir, "bundles"),
+        });
+        const recovery = await restoreBundle({
+          bundleDirectory: bundle.bundleDirectory, expectedManifestSha256: bundle.manifestSha256,
+          destinationDirectory: recoveryDirectory,
+        });
+        check(recovery.restored && recovery.manifestSha256 === bundle.manifestSha256, "Offline restoration did not verify.");
+        const options = {
+          bundleDirectory: recovery.bundleDirectory, expectedManifestSha256: recovery.manifestSha256,
+          backupDirectory: join(dir, "staging-backups"),
+          env: { CATALOGUE_LOCAL_SUPABASE_URL: localOrigin,
+            CATALOGUE_SUPABASE_PUBLISHABLE_KEY: settings.publishable,
+            CATALOGUE_IMPORT_ACCESS_TOKEN: bob.token },
+        };
+        const staged = await stageVerifiedBundle(options);
+        assert.equal(staged.outcome, "staged");
+        assert.equal(staged.differentFields, 0);
+        assert.equal(staged.activated, false);
+        assert.deepEqual(staged.media, { references: 1, uniquePhotos: 1, uploaded: 1, reused: 0, verified: 1 });
+        const again = await stageVerifiedBundle(options);
+        assert.equal(again.outcome, "already-staged");
+        assert.equal(again.differentFields, 0);
+        assert.equal(again.media.reused, 1);
+        assert.equal(again.media.uploaded, 0);
+        const archivePath = "/rest/v1/catalogue_workspace_imports?source_revision=eq.synthetic-rehearsal-1";
+        const archive = await api(archivePath, { token: bob.token });
+        expectStatus(archive, 200);
+        const rows = await archive.json();
+        assert.equal(rows.length, 1);
+        assert.equal(rows[0].owner_id, userB.id);
+        assert.deepEqual(rows[0].document, doc);
+        await expectNoRows(await api(archivePath, { token: third }));
+        await expectNoRows(await api(workspacePath, { token: bob.token }));
+        const unchanged = await read(bob);
+        expectStatus(unchanged, 200);
+        assert.equal(unchanged.headers.get("X-Revision"), "new");
+        const recoveredPhoto = await read(bob, photoRoute);
+        expectStatus(recoveredPhoto, 200);
+        assert.deepEqual(Buffer.from(await recoveredPhoto.arrayBuffer()), photo);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
     });
 
     checkpoint = "start Chromium";
