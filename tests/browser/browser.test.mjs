@@ -270,3 +270,82 @@ test("Chromium desktop and mobile owner workflows with synthetic Supabase", { ti
     });
   }
 });
+
+test("Chromium product editor creates taxonomy inline, confirms draft removal and saves by Ctrl+S", { timeout: 45000 }, async (t) => {
+  const app = await createLocalFixture(t);
+  const browser = await launchChromium();
+  t.after(() => browser.close());
+  t.diagnostic(browser.version);
+  const field = (label) => '[...document.querySelectorAll("dialog[open]:not([data-confirm]) label")]'
+    + '.find(element => element.textContent.trim().startsWith(' + JSON.stringify(label) + '))?.querySelector("input:not([type=file]),select")';
+  const dialog = 'document.querySelector("dialog[open]:not([data-confirm])")';
+  const confirmation = 'document.querySelector("dialog[data-confirm][open]")';
+  const fill = async (page, label, value) => {
+    await page.focus(field(label));
+    await page.type(value);
+  };
+  for (const viewport of [
+    { owner: owners.desktop, width: 1366, height: 900, label: "Desktop editor" },
+    { owner: owners.mobile, width: 390, height: 844, mobile: true, label: "Mobile editor" },
+  ]) {
+    await t.test(viewport.label, { timeout: 20000 }, async (layout) => {
+      const page = await browser.newPage(app.origin, viewport);
+      layout.after(() => page.close());
+      await page.navigate();
+      await signInFromKeyboard(page, viewport.owner);
+      await page.click(button("Add product"));
+      await expectVisible(page, dialog, "product dialog");
+      await fill(page, "Product name", viewport.label + " tray");
+      await page.click(button("+ Department"));
+      await fill(page, "New department name", viewport.label + " department");
+      await fill(page, "First category", viewport.label + " category");
+      await page.click(button("Add department"));
+      await page.click(button("+ Category"));
+      await fill(page, "New category name", viewport.label + " new category");
+      await page.click(button("Add category"));
+      await page.click(button("+ Collection"));
+      await fill(page, "New collection name", viewport.label + " collection");
+      await page.click(button("Add collection"));
+      await fill(page, "Size or variant", "Regular");
+      await fill(page, "Purchase price per", "4.27");
+      await fill(page, "Selling price per", "8.71");
+      await page.click(button("Add size"));
+      await fill(page, "Size or variant", "Temporary");
+      assert.equal(await page.evaluate("innerWidth"), viewport.width, "Product editor must not expand the mobile viewport");
+      assert.equal(await page.evaluate("document.documentElement.scrollWidth <= innerWidth"), true);
+      await page.click(button("Remove variant"));
+      await expectVisible(page, confirmation, "variant removal requires confirmation");
+      await page.key("Escape");
+      await expectVisible(page, button("Temporary"), "cancel preserves draft variant");
+      await page.click(button("Remove variant"));
+      await page.click(button("Confirm"));
+      await waitFor(async () => !(await page.visible(confirmation)), "variant confirmation closes");
+      assert.equal(await page.visible(button("Temporary")), false);
+      await page.key("Escape");
+      await expectVisible(page, confirmation, "discarding dirty product requires confirmation");
+      await page.key("Escape");
+      await expectVisible(page, dialog, "cancel discard keeps draft");
+      await page.focus(field("Product name"));
+      await page.key("KeyS", 2);
+      await waitFor(async () => !(await page.visible(dialog)), "Ctrl+S saved product");
+      const saved = app.rows.get(viewport.owner.id).document;
+      const family = saved.families.find(item => item.name === viewport.label + " tray");
+      assert.ok(family);
+      assert.equal(family.category, viewport.label + " new category");
+      assert.deepEqual(saved.departments[viewport.label + " department"],
+        [viewport.label + " category", viewport.label + " new category"]);
+      assert.deepEqual(family.collections, [viewport.label + " collection"]);
+      assert.equal(family.variants.length, 1);
+      assert.equal(family.variants[0].purchase, "4.27");
+      assert.equal(family.variants[0].rate, "8.71");
+      assert.equal(family.variants[0].history.length, 1);
+      await page.navigate();
+      await expectVisible(page, button("Sign out"), "owner session restored");
+      const reloaded = await page.evaluate('fetch("/api/workspace", {cache:"no-store"}).then(r=>r.json())');
+      assert.deepEqual(reloaded.families.find(item => item.id === family.id), family);
+      assert.equal(await page.evaluate("document.documentElement.scrollWidth <= innerWidth"), true);
+      assert.deepEqual(page.outside, []);
+      assert.deepEqual(page.errors, []);
+    });
+  }
+});

@@ -156,7 +156,7 @@ export async function launchChromium({ executable = findChromium() } = {}) {
   }
 }
 
-const keys = { Tab: 9, Enter: 13, Escape: 27, Space: 32 };
+const keys = { Tab: 9, Enter: 13, Escape: 27, Space: 32, KeyS: 83 };
 
 async function newPage(debug, origin, { width, height, mobile = false }) {
   const { browserContextId } = await debug.send("Target.createBrowserContext");
@@ -227,8 +227,9 @@ async function newPage(debug, origin, { width, height, mobile = false }) {
   return {
     errors, outside, navigate, evaluate, visible, click, focus,
     type: (text) => send("Input.insertText", { text }),
-    async key(code) {
-      const event = { code, key: code === "Space" ? " " : code, windowsVirtualKeyCode: keys[code] };
+    async key(code, modifiers = 0) {
+      const event = { code, key: code === "Space" ? " " : code === "KeyS" ? "s" : code,
+        windowsVirtualKeyCode: keys[code], modifiers };
       // Enter and Space need a character event for native form and control activation.
       const text = code === "Enter" ? "\r" : code === "Space" ? " " : "";
       await send("Input.dispatchKeyEvent", text

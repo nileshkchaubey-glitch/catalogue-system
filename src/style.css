@@ -926,7 +926,16 @@ p[role="alert"] {
     box-shadow: inset 0 -2px #ec7569;
   }
   .top {
-    padding: 0 16px;
+    min-height: 48px;
+    height: auto;
+    padding: 8px 14px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .top > span,
+  .top-actions {
+    min-width: 0;
+    flex-wrap: wrap;
   }
   .main main,
   .buyer main {

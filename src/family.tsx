@@ -177,7 +177,13 @@ export function FamilyForm({
     }
   }
   return (
-    <form ref={formRef} noValidate onSubmit={submit} data-dirty={dirty} data-working={busy}>
+    <form ref={formRef} noValidate onSubmit={submit} data-dirty={dirty} data-working={busy}
+      onKeyDown={(event) => {
+        if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== "s") return;
+        event.preventDefault();
+        if (event.repeat || busy || document.querySelector("dialog[data-confirm][open]")) return;
+        event.currentTarget.requestSubmit();
+      }}>
       <small className="state-pill" role="status">{busy ? "Working…" : dirty ? "Unsaved changes" : "Saved"}</small>
       <fieldset disabled={busy} className="fields">
         <label>
