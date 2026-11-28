@@ -13,12 +13,22 @@ The previously deployed Sites/R2 catalogue remains independent and unchanged.
   real desktop/mobile browser acceptance and cleanup.
 - A later read-only hosted inventory identified legacy policy names and a
   non-unique owner index not represented in the prior synthetic fixture.
-- Follow-up candidate c7ab1ee17316c3dbd36f40e83dd1512efffb1c13 adds verified
-  offline recovery, foundation compatibility and the hosted HTTPS origin pin.
-  GitHub run 46109092739 is the relevant real gate. Check its conclusion in
-  Issue #1; do not assume a pass from this document.
-- New bundle staging is local-only and has synthetic unit tests. Actual business
-  data and image migration has not occurred. No release tag or deployment exists.
+- Real integration candidate 03a2caca8c0805224c2dda7c17c89a1e97431384:
+  GitHub run 46109346577/job 140869170731 completed SUCCESS (attempt 1).
+  All 45 regression tests, build, pinned database runtime, duplicate-owner
+  rollback, revised three migrations, Auth, Storage replace/upsert/delete
+  denial with byte readback, concurrent saves, quote history, verified backup
+  restoration and local archive/media staging without activation, real
+  desktop/mobile Chromium and cleanup passed on synthetic data.
+- UI checkpoint 1a4bbcb0b8b04a2fadf1350fac2579985fdac1a5 adds product-editor
+  Ctrl+S and mobile header wrapping, with no backend or migration changes.
+  Dell production build and 8/8 packaged Worker/Chromium tests passed,
+  including 1366x900 desktop and 390x844 touch mobile product creation,
+  inline taxonomy and collections, discard/remove confirmation, save and
+  reload. Full real-stack gate applies to the preceding SHA; final owner
+  acceptance on actual migrated data remains required.
+- Actual business data and image migration has not occurred. No release
+  tag or deployment exists.
 
 ## Release gates (all must be accepted)
 
@@ -116,8 +126,13 @@ Supabase Free currently advertises 500 MB database size, 1 GB file storage,
 Paid automatic daily backups are not assumed; arrange independent private
 exports and restore rehearsals. Cloudflare Workers Free has limits on requests,
 CPU and worker size; verify the production bundle size and expected usage
-against current official documentation. Neither the hosting account nor actual
-catalogue volume has been verified for cutover. Do not enable billing or paid
+against current official documentation. At the UI checkpoint the built single
+Worker is 412065 bytes, gzip 151135 bytes, well below the published 3 MB
+compressed Free plan limit. Free Workers currently advertise 100000 requests
+per day and 10 ms CPU per HTTP request. Size is not CPU or usage certification:
+measure realistic catalogue reads, saves and media with the actual owner data
+before production approval. Neither the hosting account nor actual catalogue
+volume has been verified for cutover. Do not enable billing or paid
 features. Keep other projects untouched.
 
 Official reference:

@@ -102,3 +102,20 @@ hosted Supabase changes are part of this local checkpoint.
 Dell review: 33/33 regression tests, build and all five synthetic browser/Worker
 tests passed (Chrome 158, desktop 1366x900 and touch 390x844). No Docker or
 Supabase CLI executable is available on the Dell PATH.
+
+## Continuous development release-preparation checkpoint, 2026-11-28
+
+GitHub run 46109346577 (job 140869170731), exact feature commit
+03a2caca8c0805224c2dda7c17c89a1e97431384, attempt 1, SUCCESS. All 45
+regressions, production build, revised database compatibility/rollback,
+real Auth and private Storage, quote/owner/CAS protections, offline recovery
+and real synthetic media/archive staging without activation, desktop/mobile
+Chromium, and disposable cleanup passed. No actual business data was used.
+
+UI follow-up 1a4bbcb0b8b04a2fadf1350fac2579985fdac1a5 passed local
+production build and all 8 packaged Worker/browser tests on Dell Chrome 158,
+including product editor inline taxonomy, keyboard save, confirmations,
+mobile header overflow fix and reload. No backend/SQL/workflow changes.
+See release-handover.md for current gates and AGENTS.md for owner constraints.
+Original authorized Sites data export is still unavailable. No main merge,
+hosted migration, release publication or deployment has occurred.
