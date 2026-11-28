@@ -69,6 +69,22 @@ Keep the original and the derived copy in a private owner-controlled directory,
 outside this repository. Do not send the export, media, pricing or customer data
 to public CI or GitHub. Store the manifest digest separately.
 
+Offline preparation after authorized capture:
+
+    node scripts/prepare-legacy-export.mjs <original.json> <source-revision> <source-media-dir> <private-output-dir>
+
+Use existing, separate private directories. This command retains the exact raw
+JSON bytes, validates the supported unversioned/schema 2/schema 3 format, checks
+stable legacy fields, materializes inline JPEG bytes, validates external content
+hashes independently, deduplicates media files without deleting source
+references, and generates a verified schema 3 backup plus a private preparation
+receipt. It rejects unknown lossy mappings, corrupt media, and invalid records.
+The receipt records the original department order for acceptance comparison.
+No network, hosted access, workspace activation, or source writes occur.
+Do not mistake this private derived copy for the second independent backup.
+The script cannot certify the source ETag or authorized access; the source
+administrator must establish these before preparation.
+
 ## Offline backup and local restore/staging rehearsal
 
 Run the backup verification commands from supabase-staging.md in an isolated
