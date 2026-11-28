@@ -3,6 +3,43 @@
 Status: release preparation, NOT approved for production or data cutover.
 The previously deployed Sites/R2 catalogue remains independent and unchanged.
 
+## Owner decision — fresh-start release (28 November 2026)
+
+The owner confirmed the original Sites catalogue contains test data only and
+explicitly selected a new empty workspace. No actual Sites export, historical
+quote import, product/media copy or legacy data migration is required for this
+release. Preserve the old Sites application and R2 data without deletion,
+modification, or access attempts. The offline backup/staging tools remain
+available for future authorized use; the historical migration instructions
+below are retained as reference, not release blockers.
+
+**Latest exact real integration evidence:** commit
+`a37640a5a7efa0cf8c84f9133ca3e124fde5b2aa`, run
+[46110660482](https://github.com/nileshkchaubey-glitch/catalogue-system/actions/runs/46110660482),
+job 140873226829, attempt 1, SUCCESS. 49/49 regressions, production build,
+all three migrations, real Auth/Storage, secure owner/CAS/quotation checks,
+verified synthetic archive/media rehearsal and initial activation, explicit
+department order, desktop/mobile Chromium, and cleanup passed. No real
+business records were used.
+
+### Fresh-start readiness checklist (supersedes legacy migration gates)
+
+| Gate | Current status / required evidence |
+| --- | --- |
+| Reviewed application candidate | PASS, exact integration SHA above |
+| Previous test data | EXCLUDED by owner decision; old Sites/R2 must remain untouched |
+| Hosted destination inventory | Read-only check: dedicated project healthy, Free organization, zero Auth users, profiles, sessions and catalogue-media objects; private bucket; only original foundation migration recorded, no workspace/archive tables |
+| Hosted foundation | Pending explicit authorization to apply the three reviewed migrations only to the dedicated empty catalogue project; verify exact history, constraints, grants, RLS and advisors afterwards |
+| Admin and secrets | Provision one owner privately; disable public/anonymous signup, verify correct profile, store Worker write capability only in private runtime binding and database digest; never expose passwords or keys |
+| Empty first launch | No products, customers, prices, drafts, snapshots or uploaded images; only built-in starter taxonomy/collections; no synthetic fixture deployed |
+| Hosting | Candidate Worker fits published Free size limit; connected Cloudflare Workers subdomain exists and no catalogue-named Worker was found; subscription endpoint denied access, so confirm account plan and billing behavior before deployment |
+| Final acceptance | Approved HTTPS origin and runtime bindings; owner login, empty workspace, first create/save/reload, photo upload and permissions, desktop/mobile and WhatsApp snapshot/quotation review; test with synthetic records in an isolated environment, never populate production with fixtures |
+| Backup and rollback | Establish private recovery procedure for newly created owner records; preserve old Sites app; document deployment rollback without deleting either data store |
+| Release | Separate owner approval for hosted changes, main merge and production deployment; no release tag or live URL yet |
+
+No live hosted migration, admin provisioning, secret configuration, Cloudflare
+deployment, billing change or main merge was performed in this checkpoint.
+
 ## Current source and evidence
 
 - Repository: nileshkchaubey-glitch/catalogue-system (public).
