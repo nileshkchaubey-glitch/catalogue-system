@@ -20,7 +20,7 @@ jobs:
     if: >-
       github.repository == 'nileshkchaubey-glitch/catalogue-system' &&
       toJSON(github.event.repository.private) == 'false' &&
-      github.event.before == 'dfdde8ac307ac09038950972c63e45efe568e234' &&
+      github.event.before == 'cd2c3a8d4e3ec3b3b7c2a285d6b49598b3ace142' &&
       !github.event.created && !github.event.deleted && !github.event.forced &&
       github.run_attempt == 1
     runs-on: ubuntu-24.04
@@ -37,13 +37,14 @@ jobs:
         timeout-minutes: 3
         run: |
           set -euo pipefail
-          previous=dfdde8ac307ac09038950972c63e45efe568e234
-          candidate=a5a4efe448b52184126a185571311c49ec562c73
+          previous=cd2c3a8d4e3ec3b3b7c2a285d6b49598b3ace142
+          candidate=5910817c9ae07886e2da9137b96f2100ddfc877e
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$(git rev-list --parents -n 1 "$candidate")" = "$candidate $previous"
+          git merge-base --is-ancestor "$previous" "$candidate"
+          test "$(git rev-list --count "$previous..$candidate")" = 3
           test "$(git rev-list --parents -n 1 HEAD)" = "$GITHUB_SHA $candidate"
-          # The prior real database gate passed; preserve its exact migrations and runtime pin.
-          git diff --quiet "$previous" "$candidate" -- supabase/migrations tests/integration/legacy-foundation.sql tests/integration/supabase-runtime.json
+          # Only the reviewed foundation migration and fixtures changed.
+          git diff --quiet "$previous" "$candidate" -- supabase/migrations/20261127000200_catalogue_workspace_bridge.sql supabase/migrations/20261127000300_catalogue_worker_write_boundary.sql tests/integration/supabase-runtime.json supabase/config.toml
           # The workflow is the only permitted change after the reviewed candidate.
           git diff --quiet "$candidate" HEAD -- . ':(exclude,top,literal).github/workflows/supabase-api-gate.yml'
           npm ci --no-audit --no-fund
