@@ -28,8 +28,8 @@ business records were used.
 | --- | --- |
 | Reviewed application candidate | PASS, exact integration SHA above |
 | Previous test data | EXCLUDED by owner decision; old Sites/R2 must remain untouched |
-| Hosted destination inventory | Read-only check: dedicated project healthy, Free organization, zero Auth users, profiles, sessions and catalogue-media objects; private bucket; only original foundation migration recorded, no workspace/archive tables |
-| Hosted foundation | Pending explicit authorization to apply the three reviewed migrations only to the dedicated empty catalogue project; verify exact history, constraints, grants, RLS and advisors afterwards |
+| Hosted destination inventory | PASS: dedicated project healthy, Free organization, zero Auth users, profiles, sessions, workspace rows, archive rows and catalogue-media objects; private bucket |
+| Hosted foundation | PASS: all three approved SQL migrations applied and verified byte-for-byte against reviewed GitHub source; 3/3 public application tables have RLS, one owner constraint, private media, two quote history guards, no client raw workspace writes, zero security advisor findings |
 | Admin and secrets | Provision one owner privately; disable public/anonymous signup, verify correct profile, store Worker write capability only in private runtime binding and database digest; never expose passwords or keys |
 | Empty first launch | No products, customers, prices, drafts, snapshots or uploaded images; only built-in starter taxonomy/collections; no synthetic fixture deployed |
 | Hosting | Candidate Worker fits published Free size limit; connected Cloudflare Workers subdomain exists and no catalogue-named Worker was found; subscription endpoint denied access, so confirm account plan and billing behavior before deployment |
@@ -37,8 +37,88 @@ business records were used.
 | Backup and rollback | Establish private recovery procedure for newly created owner records; preserve old Sites app; document deployment rollback without deleting either data store |
 | Release | Separate owner approval for hosted changes, main merge and production deployment; no release tag or live URL yet |
 
-No live hosted migration, admin provisioning, secret configuration, Cloudflare
-deployment, billing change or main merge was performed in this checkpoint.
+Hosted schema migration was explicitly approved and completed on 28 November
+2026. Admin provisioning, secret configuration, Cloudflare deployment, billing
+change and main merge have NOT occurred. The old Sites/R2 remains untouched.
+
+## Hosted schema checkpoint — 28 November 2026
+
+The Management API assigned its own migration timestamps. The original
+`20261127151817 secure_catalogue_foundation` record is preserved. Each new
+record contains exactly the tested SQL source, verified against its full text.
+
+| Reviewed source migration | Hosted history version | Exact source |
+| --- | --- | --- |
+| 20261127000100_catalogue_foundation.sql | 20261128053232 | MATCH |
+| 20261127000200_catalogue_workspace_bridge.sql | 20261128053245 | MATCH |
+| 20261127000300_catalogue_worker_write_boundary.sql | 20261128053259 | MATCH |
+
+Do not blindly run `supabase db push` against the hosted project: the history
+version identifiers differ although the SQL contents match. Before any future
+hosted migration, reconcile local and remote migration history using the
+documented Supabase workflow and the verified mapping; do not reapply these
+three files or alter history without review.
+
+Hosted readback: all 3 application tables have RLS; no Auth users, sessions,
+profiles, workspace records, archive rows or media objects. Private media
+bucket and unique-owner constraint intact. Workspace writer role has no
+login, inheritance, superuser or RLS bypass. Authenticated clients cannot
+insert/update/delete raw workspace records. The RPC requires an active,
+provisioned owner and a Worker-only write capability. The digest table is
+empty, intentionally leaving writes disabled. Two quotation history guards
+are present. Security advisor returned no findings. Performance advisor
+reported a duplicate legacy owner index, unused indexes on an empty table,
+and a policy initialization-plan warning. These are non-security,
+non-blocking findings for this empty single-owner start; record for a
+future tested migration, not an unreviewed production schema change.
+
+### Private owner provisioning and predeployment runbook
+
+1. In the dedicated Supabase Dashboard, open Authentication > Sign In /
+   Providers. Turn off Allow new users to sign up and anonymous sign-ins.
+   Keep the email/password provider enabled; confirm the hosted settings
+   before creating the owner. Retain email verification where appropriate.
+2. In Authentication > Users, the owner creates exactly one confirmed
+   admin account with their chosen email and a strong unique password,
+   using the dashboard's administrative creation flow. Never submit a
+   password in chat, issue comments, source, or public CI. Verify the
+   resulting Auth UUID and no unapproved users. This is not a public
+   sign-up flow.
+3. Provision exactly one matching business_profiles row using the
+   verified Auth UUID and the owner-approved business display name and
+   INR currency. Keep unconfirmed optional fields null; do not seed
+   customers, families, quotes, or images. Verify one profile and zero
+   workspace/archive/media rows.
+4. Privately generate a cryptographically random 32-byte capability
+   encoded as 64 lowercase hex characters. Place the value only in the
+   future Worker's secret binding CATALOGUE_WORKSPACE_WRITE_KEY; insert
+   its SHA-256 digest (of the UTF-8 hex string, not the decoded bytes)
+   in catalogue_private.workspace_write_key only after checking the
+   matching secret is safely retained. Until then leave the table empty.
+   Never put the capability or actual project values in public GitHub.
+5. Prepare the two matching canonical HTTPS project-origin bindings
+   SUPABASE_URL and CATALOGUE_APPROVED_SUPABASE_ORIGIN, and the project
+   publishable key binding SUPABASE_PUBLISHABLE_KEY. No service-role
+   credential belongs in the Worker. Do not deploy or publish routes
+   before explicit approval.
+6. Verify Cloudflare Workers Free in the account dashboard. The connector
+   confirmed an existing Workers subdomain and no catalogue-named Worker,
+   but the billing subscription endpoint was denied (403). Account
+   default_usage_model=standard is not proof of a Free subscription.
+   No billing upgrade or Worker creation occurred. Official published
+   Free limits include 100,000 requests/day and 10 ms CPU/request.
+   Candidate bundle size fits even the earlier 3 MB gzip limit; real
+   hosted CPU and usage acceptance remains pending.
+7. After final owner release approval, deploy the exact reviewed build
+   with the private bindings and verify owner login, anonymous/signup
+   denial, empty workspace, write/readback and media. Preserve old Sites
+   and avoid synthetic fixtures in the real owner workspace. Record
+   deployment revision, rollback instructions and private backup routine.
+
+Admin settings and password creation must be completed privately in the
+Dashboard; the current connected Supabase tools do not expose hosted
+Auth configuration or Auth admin account creation. No credentials have
+been generated, printed or stored in this checkpoint.
 
 ## Current source and evidence
 
