@@ -136,6 +136,18 @@ async function reconcileFixture() {
     check(query("select count(*) from pg_constraint where conrelid = 'public.business_profiles'::regclass and contype = 'u' and pg_get_constraintdef(oid) = 'UNIQUE (owner_id)'") === "0", "Expected hosted legacy owner index without uniqueness.");
   });
 
+  await step("duplicate legacy owners abort without merging or leaving partial schema", () => {
+    const migration = readFileSync(new URL(migrationFiles[0], migrationsDir), "utf8");
+    const owner = "10000000-0000-4000-8000-000000000099";
+    const result = db("insert into auth.users (id,email) values ('" + owner + "','duplicate-fixture@example.invalid');\n" +
+      "insert into public.business_profiles (owner_id,business_name) values ('" + owner + "','Duplicate A'),('" + owner + "','Duplicate B');\n" + migration, true);
+    check(result.status !== 0 && /\b23505\b/.test(result.stderr), "Expected duplicate-owner constraint rejection.");
+    check(query("select count(*) from auth.users where id = '" + owner + "'") === "0", "Duplicate fixture did not roll back.");
+    check(query("select count(*) from public.business_profiles") === "0", "Profile changes did not roll back.");
+    check(query("select to_regnamespace('catalogue_private') is null") === "t", "Partial migration schema remained.");
+    check(query("select count(*) from pg_constraint where conrelid = 'public.business_profiles'::regclass and contype = 'u'") === "0", "Unexpected unique constraint after rollback.");
+  });
+
   await step("incompatible bucket aborts the foundation transaction", () => {
     const migration = readFileSync(new URL(migrationFiles[0], migrationsDir), "utf8");
     const result = db("update storage.buckets set public = true where id = 'catalogue-media';\n" + migration, true);

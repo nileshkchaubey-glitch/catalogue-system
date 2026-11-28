@@ -144,6 +144,37 @@ test("Gateway rejects missing credentials, cross-origin saves, and unsafe upstre
   }
 });
 
+test("Hosted binding permits only the independently approved canonical HTTPS project", async () => {
+  const approved = "https://abcdefghijklmnopqrst.supabase.co";
+  const bindings = { ...env, SUPABASE_URL: approved, CATALOGUE_APPROVED_SUPABASE_ORIGIN: approved };
+  const app = ownerGateway(() => Response.json([]), { bindings });
+  assertPrivate(await app.request("/api/workspace"), 200);
+  assert.ok(app.calls.length > 0);
+  for (const call of app.calls) {
+    assert.equal(call.origin, approved);
+    assert.equal(call.redirect, "manual");
+  }
+  for (const invalid of [
+    { ...bindings, CATALOGUE_APPROVED_SUPABASE_ORIGIN: undefined },
+    { ...bindings, CATALOGUE_APPROVED_SUPABASE_ORIGIN: "" },
+    { ...bindings, SUPABASE_URL: "http://abcdefghijklmnopqrst.supabase.co" },
+    { ...bindings, SUPABASE_URL: "https://abcdefghijklmnopqrst.supabase.co:444" },
+    { ...bindings, SUPABASE_URL: "https://abcdefghijklmnopqrst.supabase.co.evil.invalid" },
+    { ...bindings, SUPABASE_URL: "https://zyxwvutsrqponmlkjihg.supabase.co" },
+    { ...bindings, SUPABASE_URL: "http://127.0.0.1:54321" },
+    { ...bindings, SUPABASE_URL: approved + "/extra" },
+    { ...bindings, CATALOGUE_APPROVED_SUPABASE_ORIGIN: approved + "/" },
+  ]) {
+    const denied = ownerGateway(() => Response.json([]), { bindings: invalid });
+    assertPrivate(await denied.request("/api/workspace"), 503);
+    assert.deepEqual(denied.calls, []);
+  }
+  const redirect = gateway(() => Response.redirect("https://other.example.invalid", 307), bindings);
+  assertPrivate(await redirect.request("/api/workspace"), 503);
+  assert.equal(redirect.calls.length, 1);
+  assert.equal(redirect.calls[0].origin, approved);
+});
+
 test("Gateway denies private routes when session or owner provisioning is no longer valid", async () => {
   const app = ownerGateway(() => Response.json({ private: "unexpected response" }), { profiles: [] });
   for (const path of ["/api/workspace", "/api/buyer", photoRoute]) {

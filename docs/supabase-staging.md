@@ -105,12 +105,14 @@ and [Storage Access Control](https://supabase.com/docs/guides/storage/security/a
 
 ### Hosted URL review
 
-This Worker accepts loopback Supabase origins and rejects redirects. The stager
-requires numeric loopback. Before adding hosted access, pin one explicitly
-approved HTTPS project origin and keep redirect rejection. Verify the exact
-origin, expected project keys, Data API headers and RPC behavior, Auth signup
-settings, and private Storage policies on a disposable stack before reviewing
-any hosted change.
+The Worker defaults to loopback origins for isolated development. Hosted access
+requires both SUPABASE_URL and CATALOGUE_APPROVED_SUPABASE_ORIGIN Worker bindings
+to match one canonical HTTPS Supabase project origin, with no custom port, path,
+query or credentials. Configure the approved origin only after owner approval;
+it must never be inferred from an incoming request. Redirects remain rejected.
+The staging utility still requires numeric loopback. Verify the actual hosted
+Auth settings, project keys, Data API grants, private bucket and usage limits
+before any approved hosted change. Do not commit any actual project bindings.
 
 ## Stage a synthetic schema 3 export
 

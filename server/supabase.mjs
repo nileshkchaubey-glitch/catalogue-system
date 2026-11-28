@@ -7,8 +7,16 @@ export const validWorkspaceWriteKey = (value) =>
 export function supabaseClient(env, fetchUpstream) {
   const url = new URL(env.SUPABASE_URL);
   const key = env.SUPABASE_PUBLISHABLE_KEY;
+  // Both values are trusted Worker bindings, never derived from browser input.
+  // The release operator records the approved origin independently of the URL.
+  const approved = env.CATALOGUE_APPROVED_SUPABASE_ORIGIN;
+  const originAllowed = approved === undefined
+    ? loopback.has(url.hostname) && ["http:", "https:"].includes(url.protocol)
+    : typeof approved === "string" &&
+      /^https:\/\/[a-z0-9]{20}\.supabase\.co$/.test(approved) &&
+      url.origin === approved;
   if (
-    !loopback.has(url.hostname) || !["http:", "https:"].includes(url.protocol) ||
+    !originAllowed ||
     url.username || url.password || url.pathname !== "/" || url.search || url.hash ||
     typeof key !== "string" || !/^sb_publishable_[A-Za-z0-9_-]+$/.test(key)
   ) throw Error("Invalid Supabase configuration");
