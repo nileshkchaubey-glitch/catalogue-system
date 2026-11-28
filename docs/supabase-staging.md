@@ -227,3 +227,14 @@ with restrictive policies scoped to catalogue-media. The fixture now covers
 both sets of legacy names and an additional permissive mutation policy. The
 real gate must pass again on the exact revised migration before hosted apply.
 No hosted migration, profile creation, or production configuration was applied.
+
+## Verified bundle staging (isolated local rehearsal only)
+
+    node scripts/stage-workspace.mjs --bundle <bundle-directory> <manifest-sha256>
+
+This new entry point verifies the full backup, copies referenced media using the
+local owner's token with upsert disabled, checks exact JPEG bytes, and reconciles
+the archive fields. It never activates a workspace. A failed partial rehearsal
+may leave matching images in the disposable sandbox; retry reuses only verified
+bytes. No production data should enter the public repository or CI. See the
+release handover for the external export and actual cutover requirements.

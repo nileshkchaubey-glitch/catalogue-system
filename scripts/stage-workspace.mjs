@@ -1,10 +1,14 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, open, readFile, stat } from "node:fs/promises";
-import { resolve } from "node:path";
+import { lstat, mkdir, open, readFile, stat } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { valid } from "../server/worker.mjs";
+import { verifyBundle } from "./verify-migration-backup.mjs";
 
 const maxBytes = 12 * 1024 * 1024;
+const maxPhotoBytes = 5 * 1024 * 1024;
+const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
+const photoRef = /^\/api\/photos\/([a-f0-9]{64})$/;
 const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const revisionPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const imports = "/rest/v1/catalogue_workspace_imports";
@@ -101,8 +105,84 @@ async function saveBackup(bytes, directory) {
   return backupPath;
 }
 
+async function readPhotoResponse(response, expected) {
+  if (response.status === 404) return false;
+  if (response.status === 400) {
+    // The Storage API can report a missing object with HTTP 400 and a 404
+    // statusCode in its JSON response. A denial is never considered missing.
+    const details = await response.json().catch(() => null);
+    if (String(details?.statusCode) === "404") return false;
+  }
+  if (!response.ok || response.headers.get("Content-Type")?.split(";")[0] !== "image/jpeg" || !response.body)
+    throw Error("Local media read was denied or did not return JPEG.");
+  const reader = response.body.getReader();
+  const chunks = [];
+  let length = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      length += value.byteLength;
+      if (length > expected.length || length > maxPhotoBytes) {
+        await reader.cancel();
+        throw Error("Local media byte count exceeds its verified source.");
+      }
+      chunks.push(Buffer.from(value));
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  if (!Buffer.concat(chunks).equals(expected)) throw Error("Local media differs from its verified source.");
+  return true;
+}
+
+async function reconcileMedia(document, owner, request, bundleDirectory) {
+  const references = document.families.flatMap((family) => [
+    family.photo, ...family.gallery, ...family.variants.map((variant) => variant.overridePhoto),
+  ]).filter(Boolean);
+  const digests = [...new Set(references.map((reference) => {
+    const match = photoRef.exec(reference);
+    if (!match) throw Error("Expected a verified content-addressed media reference.");
+    return match[1];
+  }))].sort();
+  let uploaded = 0, reused = 0;
+  for (const digest of digests) {
+    const path = join(bundleDirectory, "media", digest);
+    const info = await lstat(path);
+    if (!info.isFile() || info.isSymbolicLink() || info.size < 4 || info.size > maxPhotoBytes)
+      throw Error("Local media source is not a regular verified file.");
+    const bytes = await readFile(path);
+    if (bytes.length !== info.size || hash(bytes) !== digest || bytes[0] !== 255 || bytes[1] !== 216)
+      throw Error("Local media source changed after verification.");
+    const name = owner + "/" + digest + ".jpg";
+    const readPath = "/storage/v1/object/authenticated/catalogue-media/" + name;
+    if (await readPhotoResponse(await request(readPath), bytes)) {
+      reused++;
+      continue;
+    }
+    const response = await request("/storage/v1/object/catalogue-media/" + name, {
+      method: "POST", headers: { "Content-Type": "image/jpeg", "x-upsert": "false" }, body: bytes,
+    });
+    if (!response.ok && ![400, 409].includes(response.status)) throw Error("Local media upload failed.");
+    if (!(await readPhotoResponse(await request(readPath), bytes))) throw Error("Local media upload could not be verified.");
+    if (response.ok) uploaded++;
+    else reused++;
+  }
+  return { references: references.length, uniquePhotos: digests.length, uploaded, reused, verified: digests.length };
+}
+
+// The verified-bundle entry point is the migration rehearsal path. It never
+// activates the staged document and never accepts a hosted Supabase origin.
+export async function stageVerifiedBundle({ bundleDirectory, expectedManifestSha256, ...options }) {
+  const verified = await verifyBundle({ bundleDirectory, expectedManifestSha256 });
+  return stageWorkspace({
+    ...options, sourcePath: join(bundleDirectory, "workspace.json"), sourceRevision: verified.sourceRevision,
+    verifiedSource: { bundleDirectory, expectedManifestSha256, workspaceSha256: verified.workspaceSha256 },
+  });
+}
+
 export async function stageWorkspace({ sourcePath, sourceRevision, env = process.env,
-  backupDirectory = backupRoot, fetcher = fetch }) {
+  backupDirectory = backupRoot, fetcher = fetch, verifiedSource }) {
   if (!sourcePath || typeof sourceRevision !== "string" || !revisionPattern.test(sourceRevision)) {
     throw Error(usage);
   }
@@ -118,6 +198,8 @@ export async function stageWorkspace({ sourcePath, sourceRevision, env = process
     throw Error("Source must be a valid schema 3 JSON export.");
   }
   if (!valid(document)) throw Error("Source workspace failed schema 3 validation.");
+  if (verifiedSource && hash(bytes) !== verifiedSource.workspaceSha256)
+    throw Error("Verified workspace changed before staging.");
 
   function request(path, options = {}) {
     return fetcher(new URL(path, url), {
@@ -158,6 +240,20 @@ export async function stageWorkspace({ sourcePath, sourceRevision, env = process
 
   const current = await readStage();
   const backupPath = await saveBackup(bytes, backupDirectory);
+  // Do not write media for an already-conflicting archive revision.
+  if (verifiedSource && current) {
+    const reconciliation = compare(document, current.document);
+    if (reconciliation.differentFields !== 0 || reconciliation.stagedCounts === null)
+      throw Error("Existing archive revision differs from the verified export.");
+  }
+  let media;
+  if (verifiedSource) {
+    media = await reconcileMedia(document, owner, request, verifiedSource.bundleDirectory);
+    const verified = await verifyBundle(verifiedSource);
+    if (verified.workspaceSha256 !== hash(bytes) || verified.sourceRevision !== sourceRevision ||
+        verified.uniquePhotos !== media.uniquePhotos || verified.mediaReferences !== media.references)
+      throw Error("Source changed during local migration rehearsal.");
+  }
   let stored = current;
   let outcome = "already-staged";
   if (!current) {
@@ -181,7 +277,8 @@ export async function stageWorkspace({ sourcePath, sourceRevision, env = process
   }
   return {
     outcome, sourceRevision, backupPath,
-    sourceSha256: createHash("sha256").update(bytes).digest("hex"),
+    sourceSha256: hash(bytes),
+    ...(media ? { media, activated: false } : {}),
     ...reconciliation,
   };
 }
@@ -189,8 +286,14 @@ export async function stageWorkspace({ sourcePath, sourceRevision, env = process
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
   const [sourcePath, sourceRevision] = process.argv.slice(2);
   try {
-    if (process.argv.length !== 4) throw Error(usage);
-    console.log(JSON.stringify(await stageWorkspace({ sourcePath, sourceRevision }), null, 2));
+    if (sourcePath === "--bundle" && process.argv.length === 5) {
+      console.log(JSON.stringify(await stageVerifiedBundle({
+        bundleDirectory: sourceRevision, expectedManifestSha256: process.argv[4],
+      }), null, 2));
+    } else {
+      if (process.argv.length !== 4) throw Error(usage + " Or use --bundle <verified-bundle-dir> <manifest-sha256>.");
+      console.log(JSON.stringify(await stageWorkspace({ sourcePath, sourceRevision }), null, 2));
+    }
   } catch (problem) {
     console.error(`Staging stopped. ${problem.message}`);
     if (problem.reconciliation) console.error(JSON.stringify(problem.reconciliation, null, 2));
