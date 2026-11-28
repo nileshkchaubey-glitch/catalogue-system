@@ -1160,3 +1160,48 @@ p[role="alert"] {
 .folder .grow small {
   white-space: normal;
 }
+
+.upload.active-drop,
+.gallery-photo.active-drop {
+  outline: 2px solid #4385a8;
+  outline-offset: 2px;
+}
+.gallery-photo[draggable="true"] img {
+  cursor: grab;
+}
+.gallery-photo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+.gallery-photo button {
+  min-height: 32px;
+}
+.excel-dialog {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+.excel-dialog p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.excel-dialog label {
+  display: grid;
+  gap: 6px;
+}
+.excel-dialog .excel-issue {
+  white-space: pre-line;
+}
+.excel-review {
+  margin: 0;
+  padding-inline-start: 20px;
+}
+.excel-review small {
+  color: var(--muted);
+}
+@media (pointer: coarse) {
+  .gallery-photo button {
+    min-height: 44px;
+  }
+}

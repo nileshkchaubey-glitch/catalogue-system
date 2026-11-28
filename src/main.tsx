@@ -20,6 +20,7 @@ import {
   Package,
   RefreshCw,
   ShoppingBasket,
+  Sheet,
 } from "lucide-react";
 import {
   departmentOf,
@@ -41,6 +42,7 @@ import { SessionBoundary } from "./session";
 import type { OwnerProfile } from "./session";
 import { QuotationForm } from "./quotations";
 import { BulkPricingForm } from "./bulk-pricing";
+import { CatalogueExcelDialog } from "./catalogue-excel-dialog";
 import "./style.css";
 type Modal =
   | { kind: "product"; family?: Family }
@@ -49,7 +51,8 @@ type Modal =
   | { kind: "customer"; c?: Customer }
   | { kind: "rate"; p: Product }
   | { kind: "draft"; customerId: string }
-  | { kind: "bulk"; variantIds: string[] };
+  | { kind: "bulk"; variantIds: string[] }
+  | { kind: "excel" };
 const navigation = [
   { name: "Products", Icon: LibraryBig },
   { name: "Rates", Icon: Tags },
@@ -337,6 +340,11 @@ function App({ profile, signOut, checkSession }: {
                 onClick={() => open({ kind: "collection", current: filter })}
               >
                 Manage products
+              </button>
+            )}
+            {tab === "Products" && (
+              <button className="secondary" disabled={!revision} onClick={() => open({ kind: "excel" })}>
+                <Sheet size={17} aria-hidden /> Catalogue Excel
               </button>
             )}
             {tab === "Rates" ? (
@@ -666,7 +674,9 @@ function App({ profile, signOut, checkSession }: {
                         : "Create collection"
                       : modal.kind === "bulk"
                         ? "Bulk markup"
-                        : "Customer quotation"
+                        : modal.kind === "excel"
+                          ? "Catalogue Excel"
+                          : "Customer quotation"
           }
           close={() => void closeDialog()}
         >
@@ -807,6 +817,9 @@ function App({ profile, signOut, checkSession }: {
           )}
           {modal.kind === "bulk" && (
             <BulkPricingForm workspace={data} variantIds={modal.variantIds} save={save} close={() => D(null)} />
+          )}
+          {modal.kind === "excel" && (
+            <CatalogueExcelDialog workspace={data} save={save} close={() => D(null)} />
           )}
         </Dialog>
       )}
