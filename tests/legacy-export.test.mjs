@@ -42,6 +42,8 @@ test("schema 2 exact original and stable fields preserved, inline JPEG materiali
   assert.deepEqual(await readFile(args.sourcePath), original);
   const doc = JSON.parse(await readFile(join(prepared.bundleDirectory, "workspace.json"), "utf8"));
   assert.deepEqual(doc.customers, [customer]);
+  assert.deepEqual(doc.departmentOrder, prepared.departmentOrder);
+  assert.deepEqual(doc.departmentOrder, Object.keys(doc.departments));
   assert.equal(doc.families[0].id, legacy.families[0].id);
   assert.equal(doc.families[0].photo, ref);
   assert.deepEqual(doc.families[0].variants, [{ ...variant, purchase: "" }]);
@@ -71,4 +73,20 @@ test("unknown overwritten legacy fields, corrupt media and overlapping source ar
   await writeFile(join(good.mediaDirectory, sha), Buffer.from([255,216,0,217]));
   // The cover's matching inline bytes must not hide a corrupt external object.
   await assert.rejects(prepareLegacyExport(good), /JPEG/);
+});
+
+test("explicit department order survives JSON object reordering and invalid orders fail closed", async t => {
+  const raw = {
+    schema: 3, departments: { Zulu: ["Trays"], Alpha: ["Cups"] },
+    departmentOrder: ["Alpha", "Zulu"], collections: [], families: [], customers: [],
+  };
+  const args = await fixture(t, raw);
+  const prepared = await prepareLegacyExport(args);
+  const doc = JSON.parse(await readFile(join(prepared.bundleDirectory, "workspace.json"), "utf8"));
+  assert.deepEqual(doc.departmentOrder, ["Alpha", "Zulu"]);
+  assert.deepEqual(prepared.departmentOrder, ["Alpha", "Zulu"]);
+  for (const order of [["Zulu"], ["Zulu", "Zulu"], ["Zulu", "Unknown"]]) {
+    await writeFile(args.sourcePath, JSON.stringify({ ...raw, departmentOrder: order }));
+    await assert.rejects(prepareLegacyExport(args), /validation failed/);
+  }
 });

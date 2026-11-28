@@ -82,6 +82,11 @@ export function valid(doc) {
   if(!doc.departments||typeof doc.departments!=="object"||Array.isArray(doc.departments))return false;
   const entries=Object.entries(doc.departments);if(!entries.length||!entries.every(([dept,cats])=>safeName(dept)&&Array.isArray(cats)&&cats.length&&cats.every(safeName)))return false;
   const categories=Object.values(doc.departments).flat();if(!unique(categories.map(c=>c.toLowerCase()))||!unique(Object.keys(doc.departments).map(c=>c.toLowerCase())))return false;
+  if (Object.hasOwn(doc, "departmentOrder")) {
+    const order = doc.departmentOrder;
+    if (!Array.isArray(order) || order.length !== entries.length || !unique(order) ||
+        !order.every(key => typeof key === "string" && Object.hasOwn(doc.departments, key))) return false;
+  }
   const groups = doc.collections;
   if (
     !groups.every(

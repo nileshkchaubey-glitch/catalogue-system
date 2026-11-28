@@ -335,6 +335,8 @@ test("Chromium product editor creates taxonomy inline, confirms draft removal an
       assert.deepEqual(saved.departments[viewport.label + " department"],
         [viewport.label + " category", viewport.label + " new category"]);
       assert.deepEqual(family.collections, [viewport.label + " collection"]);
+      assert.equal(saved.departmentOrder.at(-1), viewport.label + " department");
+      assert.deepEqual(new Set(saved.departmentOrder), new Set(Object.keys(saved.departments)));
       assert.equal(family.variants.length, 1);
       assert.equal(family.variants[0].purchase, "4.27");
       assert.equal(family.variants[0].rate, "8.71");
@@ -343,6 +345,7 @@ test("Chromium product editor creates taxonomy inline, confirms draft removal an
       await expectVisible(page, button("Sign out"), "owner session restored");
       const reloaded = await page.evaluate('fetch("/api/workspace", {cache:"no-store"}).then(r=>r.json())');
       assert.deepEqual(reloaded.families.find(item => item.id === family.id), family);
+      assert.deepEqual(reloaded.departmentOrder, saved.departmentOrder);
       assert.equal(await page.evaluate("document.documentElement.scrollWidth <= innerWidth"), true);
       assert.deepEqual(page.outside, []);
       assert.deepEqual(page.errors, []);

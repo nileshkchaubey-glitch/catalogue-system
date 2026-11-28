@@ -107,6 +107,9 @@ export async function prepareLegacyExport({ sourcePath, sourceRevision, mediaDir
   try { raw = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(original)); }
   catch { throw Error("Invalid UTF-8 JSON source."); }
   const { doc, schema } = convert(raw);
+  // Capture source key order before JSONB can reorder object properties.
+  // Preserve any already recorded explicit order rather than replacing it.
+  doc.departmentOrder ??= Object.keys(doc.departments);
   const output = join(outputRoot, "catalogue-prepared-" + randomUUID());
   await mkdir(output, { mode: 0o700 });
   await saveNew(join(output, "original-workspace.json"), original);
@@ -158,7 +161,7 @@ export async function prepareLegacyExport({ sourcePath, sourceRevision, mediaDir
   const receipt = {
     format: 1, sourceRevision, sourceSchema: schema, originalSha256: digest(original),
     derivedSha256: digest(derived), manifestSha256: bundle.manifestSha256,
-    departmentOrder: Object.keys(doc.departments), inlineReferences, externalReferences,
+    departmentOrder: doc.departmentOrder, inlineReferences, externalReferences,
     uniquePhotos: checked.size, verified: true, activated: false,
   };
   // Receipt includes private department names; keep it outside public source.

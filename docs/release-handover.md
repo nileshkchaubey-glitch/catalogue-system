@@ -113,17 +113,24 @@ rehearsal is retained in the disposable sandbox; never treat a partial stage as
 verified. On retry, an existing photo must match exactly. A conflicting archive
 revision blocks writes. Review the reconciliation before activation.
 
-JSONB can reorder object keys; verify actual department display order against
-the original export and resolve differences before release. Array order and
-fields must reconcile. Do not silently rebuild or reorder historical quotations.
+JSONB can reorder object keys. The offline preparation now persists an explicit
+departmentOrder array in the derived document, and the editor and library use
+that order instead of object key enumeration. Existing explicit order is
+preserved and invalid, duplicate or missing department names are rejected.
+Legacy documents without this field remain readable; their original order
+cannot be reconstructed from JSONB alone, so compare the authorized source
+receipt with the displayed order before release. Other fields and array order
+must reconcile. Do not silently rebuild or reorder historical quotations.
 If imported source includes confirmed snapshots, normal initial workspace save
 rejects historical snapshots by design; an explicit reviewed, audited restore
 procedure and a disposable rehearsal are required before activation. Do not
 disable the normal quotation immutability triggers or invent historical data.
-If the source has no confirmed snapshots, the first ordinary owner save may
-be rehearsed after media and document reconciliation. Verify current workspace
-is empty, use the approved source and normal CAS, and read back the entire
-document. Actual hosted activation remains separately approved.
+If the source has no confirmed snapshots, the first ordinary owner save can
+be rehearsed after media and document reconciliation. The isolated integration
+gate now checks that staging remains non-activating, then explicitly rehearses
+first activation with a provisioned synthetic owner, the normal protected CAS,
+full readback, repeated initial-save denial, invalid-order rejection and
+unchanged archive. Actual hosted activation remains separately approved.
 
 ## Hosted configuration and cost constraints
 

@@ -2,6 +2,10 @@ import taxonomy from "../shared/taxonomy.json" with { type: "json" };
 import type { QuoteDraft, QuoteSnapshot } from "../shared/quote-pricing.mjs";
 export const departments: Record<string, string[]> = taxonomy.departments;
 export const categories = Object.values(departments).flat();
+// JSONB preserves arrays, not object insertion order. Old workspaces have
+// no explicit order; keep their received order until the owner saves it.
+export const departmentNames = (tree: Workspace["departments"], order?: string[]) =>
+  order ?? Object.keys(tree);
 export const departmentOf = (tree: Workspace["departments"], category: string) =>
   Object.entries(tree).find(([, names]) => names.includes(category))?.[0] ?? "";
 export const fullCatalog = "Full catalog";
@@ -52,6 +56,7 @@ export type Customer = {
 export type Workspace = {
   schema: 3;
   departments: Record<string, string[]>;
+  departmentOrder?: string[];
   families: Family[];
   customers: Customer[];
   collections: string[];

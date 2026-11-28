@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import {
   departmentOf,
+  departmentNames,
   variantsOf,
   fullCatalog,
   featuredCollection,
@@ -98,6 +99,7 @@ function App({ profile, signOut, checkSession }: {
   );
   const allGroups = [fullCatalog, ...data.collections];
   const { departments } = data;
+  const orderedDepartments = departmentNames(departments, data.departmentOrder);
   const productForm = useRef<HTMLFormElement>(null);
   const products = data.families.flatMap(variantsOf);
   const version = useRef("");
@@ -231,7 +233,7 @@ function App({ profile, signOut, checkSession }: {
             rows.findIndex((x) => x.familyId === p.familyId) === i,
         );
   const folderNames = isLibrary
-    ? Object.keys(departments)
+    ? orderedDepartments
     : isDepartment
       ? departments[filter] ?? []
       : [];
@@ -674,11 +676,12 @@ function App({ profile, signOut, checkSession }: {
               profileId={profile.id}
               initial={modal.family}
               tree={departments}
+              order={orderedDepartments}
               category={
                 scope === "category" && productDepartment(filter)
                   ? filter
                   : (scope === "department" && departments[filter]?.[0]) ||
-                    Object.values(departments)[0]?.[0] || ""
+                    departments[orderedDepartments[0]]?.[0] || ""
               }
               groups={data.collections}
               selectedCollection={
@@ -687,11 +690,12 @@ function App({ profile, signOut, checkSession }: {
                   : undefined
               }
               cancel={() => void closeDialog()}
-              onSave={async (family, nextDepartments, collections) => {
+              onSave={async (family, nextDepartments, collections, departmentOrder) => {
                 await save(
                   {
                     ...data,
                     departments: nextDepartments,
+                    departmentOrder,
                     collections,
                     families: modal.family
                       ? data.families.map((f) =>

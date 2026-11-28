@@ -583,7 +583,8 @@ async function integrate(settings) {
         const recoveryDirectory = join(dir, "recovery");
         await mkdir(mediaDirectory);
         await mkdir(recoveryDirectory);
-        const doc = fixture(photoRoute);
+        const doc = { ...fixture(photoRoute), departments: { Zulu: ["Containers"], Alpha: ["Cups"] },
+          departmentOrder: ["Zulu", "Alpha"] };
         await writeFile(sourcePath, JSON.stringify(doc, null, 2) + "\n");
         await writeFile(join(mediaDirectory, digest), photo);
         const bundle = await createBundle({
@@ -627,6 +628,29 @@ async function integrate(settings) {
         const recoveredPhoto = await read(bob, photoRoute);
         expectStatus(recoveredPhoto, 200);
         assert.deepEqual(Buffer.from(await recoveredPhoto.arrayBuffer()), photo);
+        // Rehearse first activation on the disposable owner's empty workspace.
+        // This source has no confirmed history. Use the normal protected CAS,
+        // not a special import bypass or privileged table mutation.
+        const activated = await write(rows[0].document, "new", profileB.id, bob);
+        expectStatus(activated, 200);
+        const saved = await activated.json();
+        assert.match(saved.revision, revisionPattern);
+        assert.deepEqual(saved.workspace, doc);
+        const readback = await read(bob);
+        expectStatus(readback, 200);
+        assert.equal(readback.headers.get("X-Revision"), saved.revision);
+        assert.deepEqual(await readback.json(), doc);
+        const duplicate = await write(doc, "new", profileB.id, bob);
+        expectStatus(duplicate, 409);
+        const invalidOrder = { ...doc, departmentOrder: ["Zulu", "Zulu"] };
+        expectStatus(await write(invalidOrder, saved.revision, profileB.id, bob), 422);
+        const finalRead = await read(bob);
+        assert.equal(finalRead.headers.get("X-Revision"), saved.revision);
+        assert.deepEqual(await finalRead.json(), doc);
+        const stillArchived = await api(archivePath, { token: bob.token });
+        expectStatus(stillArchived, 200);
+        assert.deepEqual(await stillArchived.json(), rows);
+        console.log("Synthetic initial activation, explicit department order and repeat-write denial verified.");
       } finally {
         await rm(dir, { recursive: true, force: true });
       }

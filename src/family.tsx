@@ -63,6 +63,7 @@ export function FamilyForm({
   category,
   groups: initialGroups,
   tree,
+  order,
   selectedCollection,
   profileId,
   cancel,
@@ -71,12 +72,13 @@ export function FamilyForm({
   formRef: Ref<HTMLFormElement>;
   initial?: Family;
   tree: Workspace["departments"];
+  order: string[];
   category: string;
   groups: string[];
   selectedCollection?: string;
   profileId: string;
   cancel: () => void;
-  onSave: (f: Family, tree: Workspace["departments"], groups: string[]) => Promise<void>;
+  onSave: (f: Family, tree: Workspace["departments"], groups: string[], order: string[]) => Promise<void>;
 }) {
   const [original] = useState(() => ({ family: initial, tree, groups: initialGroups }));
   const [f, set] = useState<Family>(
@@ -91,6 +93,7 @@ export function FamilyForm({
         variants: [newVariant()],
       },
   );
+  const [departmentOrder, updateOrder] = useState(order);
   const [departments, updateTree] = useState(tree),
     [groups, updateGroups] = useState(initialGroups);
   const [adding, add] = useState<"" | "Department" | "Category" | "Collection">(""),
@@ -120,6 +123,7 @@ export function FamilyForm({
       if (exists(Object.keys(departments), value) || exists(categories, category))
         return E("Department and category names must be unique.");
       updateTree({ ...departments, [value]: [category] });
+      updateOrder([...departmentOrder, value]);
       set({ ...f, category });
     } else if (adding === "Category") {
       if (!department) return E("Choose a department first.");
@@ -169,7 +173,7 @@ export function FamilyForm({
     E("");
     B(true);
     try {
-      await onSave(result.family, departments, groups);
+      await onSave(result.family, departments, groups, departmentOrder);
     } catch (e) {
       E((e as Error).message);
     } finally {
@@ -203,7 +207,7 @@ export function FamilyForm({
                 set({ ...f, category: departments[e.target.value][0] })
               }
             >
-              {Object.keys(departments).map((k) => (
+              {departmentOrder.map((k) => (
                 <option key={k}>{k}</option>
               ))}
             </select>
