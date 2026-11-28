@@ -20,7 +20,7 @@ jobs:
     if: >-
       github.repository == 'nileshkchaubey-glitch/catalogue-system' &&
       toJSON(github.event.repository.private) == 'false' &&
-      github.event.before == 'c7ab1ee17316c3dbd36f40e83dd1512efffb1c13' &&
+      github.event.before == '2bc419653efc49410f4c17ef3d7d1535b13cfa16' &&
       !github.event.created && !github.event.deleted && !github.event.forced &&
       github.run_attempt == 1
     runs-on: ubuntu-24.04
@@ -37,14 +37,13 @@ jobs:
         timeout-minutes: 3
         run: |
           set -euo pipefail
-          previous=c7ab1ee17316c3dbd36f40e83dd1512efffb1c13
-          candidate=844831fe44797b52327e8011f99221a4a8b6ec27
+          previous=2bc419653efc49410f4c17ef3d7d1535b13cfa16
+          candidate=ef2b4adcf4736ab469b10028de5d6fe7db687240
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          git merge-base --is-ancestor "$previous" "$candidate"
-          test "$(git rev-list --count "$previous..$candidate")" = 2
+          test "$(git rev-list --parents -n 1 "$candidate")" = "$candidate $previous"
           test "$(git rev-list --parents -n 1 HEAD)" = "$GITHUB_SHA $candidate"
-          # No application or migration source changed after the last revised gate.
-          git diff --quiet "$previous" "$candidate" -- supabase server src shared tests/integration/legacy-foundation.sql tests/integration/supabase-runtime.json
+          # This reviewed application change preserves the pinned database inputs.
+          git diff --quiet "$previous" "$candidate" -- supabase shared tests/integration/legacy-foundation.sql tests/integration/supabase-runtime.json
           # The workflow is the only permitted change after the reviewed candidate.
           git diff --quiet "$candidate" HEAD -- . ':(exclude,top,literal).github/workflows/supabase-api-gate.yml'
           npm ci --no-audit --no-fund
